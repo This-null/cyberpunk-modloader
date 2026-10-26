@@ -1,0 +1,317 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #17181b;
+  --surface: #1f2024;
+  --surface-2: #27282d;
+  --border: #34363c;
+  --text: #e7e4dc;
+  --muted: #a3a097;
+  --accent: #e0b84a;
+  --accent-ink: #1b1608;
+  --danger: #e87d73;
+  --ok: #8fc48f;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f5f2ea;
+  --surface: #fffdf8;
+  --surface-2: #ece8dd;
+  --border: #d9d4c6;
+  --text: #26241f;
+  --muted: #666258;
+  --accent: #c99a1e;
+  --accent-ink: #1b1608;
+  --danger: #b33a30;
+  --ok: #2f6b3a;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f5f2ea;
+    --surface: #fffdf8;
+    --surface-2: #ece8dd;
+    --border: #d9d4c6;
+    --text: #26241f;
+    --muted: #666258;
+    --accent: #c99a1e;
+    --accent-ink: #1b1608;
+    --danger: #b33a30;
+    --ok: #2f6b3a;
+    color-scheme: light;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, "Segoe UI", sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+  user-select: none;
+}
+
+pre,
+textarea,
+input {
+  user-select: text;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+}
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-ui: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes enter-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes enter-page {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes enter-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes logo-top {
+  from {
+    opacity: 0;
+    transform: translateX(46px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes logo-mid {
+  from {
+    opacity: 0;
+    transform: scaleX(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes logo-bottom {
+  from {
+    opacity: 0;
+    transform: translateX(-46px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.anim-rise {
+  animation: enter-rise 220ms var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+
+.anim-page {
+  animation: enter-page 200ms var(--ease-out) backwards;
+}
+
+.anim-pop {
+  animation: enter-pop 170ms var(--ease-out) backwards;
+}
+
+.anim-fade {
+  animation: enter-fade 140ms linear backwards;
+}
+
+.logo-s1 {
+  animation: logo-top 700ms var(--ease-out) 120ms backwards;
+}
+
+.logo-s2 {
+  animation: logo-mid 700ms var(--ease-out) 120ms backwards;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.logo-s3 {
+  animation: logo-bottom 700ms var(--ease-out) 120ms backwards;
+}
+
+.pinned {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, var(--surface)), var(--surface) 60%);
+  box-shadow: 0 0 28px -10px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.pinned::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 38%, color-mix(in srgb, var(--accent) 20%, transparent) 50%, transparent 62%);
+  transform: translateX(-100%);
+  animation-name: shimmer;
+  animation-duration: 1400ms;
+  animation-timing-function: var(--ease-out);
+  animation-delay: 500ms;
+  animation-fill-mode: both;
+}
+
+.pinned:hover::after {
+  animation-name: shimmer-again;
+}
+
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes shimmer-again {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+
+.splash-name {
+  animation: enter-rise 300ms var(--ease-out) 600ms backwards;
+}
+
+.splash-out {
+  animation: enter-fade-out 300ms linear forwards;
+  pointer-events: none;
+}
+
+@keyframes enter-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+button {
+  transition:
+    background-color 120ms var(--ease-ui),
+    border-color 120ms var(--ease-ui),
+    color 120ms var(--ease-ui),
+    opacity 120ms var(--ease-ui),
+    transform 90ms var(--ease-ui);
+}
+
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) *,
+  :root:not([data-motion="full"]) *::before,
+  :root:not([data-motion="full"]) *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

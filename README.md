@@ -1,51 +1,46 @@
 # CP2077 Mod Launcher
 
-English · Türkçe · Русский · Español · Português (Brasil) · Français · Polski · Deutsch
+[English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-## English
+An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.0.1 beta.
 
-**Stay tuned.** The source code of CP2077 Mod Launcher, a mod manager for Cyberpunk 2077, will be published here. The launcher is in beta and the code is not public yet. Watch this repository to hear when it opens.
+It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop team.
 
-Not affiliated with or endorsed by CD PROJEKT RED or Nexus Mods.
+## What it does
 
-## Türkçe
+- Installs mods from .zip, .rar and .7z files. Drop a file on the window or press Install mod.
+- Turns a mod on by copying its files into the game folder and off by removing exactly those files. Overwritten files are backed up and put back.
+- Warns before a mod would overwrite a file that belongs to another mod.
+- Finds mods you installed by hand and lets you import them.
+- Keeps several versions of one mod in a single card, so you can see which one is current.
+- Checks and installs NightCoop builds from the official website, and verifies each download with SHA-256.
+- Browses and searches Nexus Mods with filters, tags and endless scrolling. Free accounts can install through nxm links or from the downloads folder.
+- Shows game, mod and launcher logs, and clears them when you ask.
+- Speaks English, Turkish, Russian, Spanish, Brazilian Portuguese, French, Polish and German.
+- Has system, dark and light themes.
 
-**Beklemede kalın.** Cyberpunk 2077 için bir mod yöneticisi olan CP2077 Mod Launcher'ın kaynak kodu burada yayınlanacak. Launcher şu an beta aşamasında ve kod henüz herkese açık değil. Açıldığında haberdar olmak için bu depoyu izleyin.
+## Install
 
-CD PROJEKT RED veya Nexus Mods ile bağlantılı değildir ve onlar tarafından onaylanmamıştır.
+1. Download the zip from [Releases](https://github.com/This-null/cyberpunk-modloader/releases).
+2. Unzip it and run the setup file.
+3. Windows may show a SmartScreen warning because the installer is not code signed. Choose More info, then Run anyway.
 
-## Русский
+## Privacy
 
-**Следите за новостями.** Здесь будет опубликован исходный код CP2077 Mod Launcher, менеджера модов для Cyberpunk 2077. Лаунчер находится в бета-версии, код пока закрыт. Подпишитесь на этот репозиторий, чтобы узнать, когда он откроется.
+Nothing is sent anywhere automatically. Bug reports are only saved on your computer. The launcher talks to the NightCoop website and Nexus Mods to list and download mods. Release notes go to Google Translate only if you allow it in Settings. Your Nexus API key stays in Windows Credential Manager on your computer.
 
-Проект не связан с CD PROJEKT RED и Nexus Mods и не одобрен ими.
+## Build from source
 
-## Español
+You need Node 20 or newer, pnpm and stable Rust.
 
-**Estén atentos.** Aquí se publicará el código fuente de CP2077 Mod Launcher, un gestor de mods para Cyberpunk 2077. El launcher está en beta y el código aún no es público. Sigue este repositorio para saber cuándo se abre.
+```
+pnpm install
+pnpm tauri dev
+pnpm tauri build
+```
 
-No está afiliado ni respaldado por CD PROJEKT RED ni Nexus Mods.
+## License
 
-## Português (Brasil)
+MIT, see [LICENSE](LICENSE). RAR files are unpacked with the UnRAR source through the unrar crate, which has its own license.
 
-**Fique de olho.** O código-fonte do CP2077 Mod Launcher, um gerenciador de mods para Cyberpunk 2077, será publicado aqui. O launcher está em beta e o código ainda não é público. Acompanhe este repositório para saber quando ele abrir.
-
-Não é afiliado nem endossado pela CD PROJEKT RED ou pelo Nexus Mods.
-
-## Français
-
-**Restez à l'écoute.** Le code source de CP2077 Mod Launcher, un gestionnaire de mods pour Cyberpunk 2077, sera publié ici. Le launcher est en bêta et le code n'est pas encore public. Suivez ce dépôt pour savoir quand il ouvrira.
-
-Sans lien avec CD PROJEKT RED ni Nexus Mods, et non approuvé par eux.
-
-## Polski
-
-**Bądźcie na bieżąco.** Kod źródłowy CP2077 Mod Launcher, menedżera modów do Cyberpunk 2077, zostanie opublikowany tutaj. Launcher jest w wersji beta, a kod nie jest jeszcze publiczny. Obserwuj to repozytorium, aby dowiedzieć się, kiedy zostanie otwarty.
-
-Projekt nie jest powiązany z CD PROJEKT RED ani Nexus Mods i nie został przez nie zatwierdzony.
-
-## Deutsch
-
-**Bleibt dran.** Der Quellcode von CP2077 Mod Launcher, einem Mod-Manager für Cyberpunk 2077, wird hier veröffentlicht. Der Launcher ist in der Beta und der Code ist noch nicht öffentlich. Beobachte dieses Repository, um zu erfahren, wann es öffnet.
-
-Nicht mit CD PROJEKT RED oder Nexus Mods verbunden und nicht von ihnen unterstützt.
+Use mods at your own risk and back up your saves first.
