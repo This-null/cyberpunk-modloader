@@ -46,8 +46,11 @@ pub fn map_entry(raw: &str, mod_name: &str) -> Result<Option<PathBuf>, AppError>
     let Some(first) = segments.first() else {
         return Ok(None);
     };
+    let tool = segments.len() >= 3
+        && segments[0].eq_ignore_ascii_case("engine")
+        && segments[1].eq_ignore_ascii_case("tools");
     if segments.iter().any(|s| bad_segment(s))
-        || segments.last().is_some_and(|s| s.to_ascii_lowercase().ends_with(".exe"))
+        || (!tool && segments.last().is_some_and(|s| s.to_ascii_lowercase().ends_with(".exe")))
     {
         return Err(AppError::UnsafePath(raw.to_string()));
     }
@@ -62,13 +65,12 @@ pub fn map_entry(raw: &str, mod_name: &str) -> Result<Option<PathBuf>, AppError>
     if segments.len() == 1 && lower.starts_with("launcher-") {
         return Ok(None);
     }
-    if segments.len() == 1 {
-        if lower.ends_with(".archive") || lower.ends_with(".xl") {
-            return Ok(Some(PathBuf::from("archive/pc/mod").join(name)));
-        }
-        if lower.ends_with(".reds") {
-            return Ok(Some(PathBuf::from("r6/scripts").join(mod_name).join(name)));
-        }
+    if lower.ends_with(".archive") || lower.ends_with(".xl") {
+        return Ok(Some(PathBuf::from("archive/pc/mod").join(segments.iter().collect::<PathBuf>())));
+    }
+    if lower.ends_with(".reds") {
+        let under = if segments.len() == 1 { PathBuf::from(mod_name).join(name) } else { segments.iter().collect() };
+        return Ok(Some(PathBuf::from("r6/scripts").join(under)));
     }
     Err(AppError::Unmappable(raw.to_string()))
 }
@@ -111,6 +113,22 @@ mod tests {
     fn flat_reds_goes_to_named_scripts_dir() {
         let p = map_entry("a.reds", "mymod").unwrap().unwrap();
         assert_eq!(p, PathBuf::from("r6/scripts/mymod/a.reds"));
+    }
+
+    #[test]
+    fn files_inside_a_wrapper_folder_keep_the_folder_under_the_game_folder() {
+        assert_eq!(
+            map_entry("MidLength_HAIRS_WINGDEER/#VESS_HAIR_NO32.archive", "m").unwrap().unwrap(),
+            PathBuf::from("archive/pc/mod/MidLength_HAIRS_WINGDEER/#VESS_HAIR_NO32.archive")
+        );
+        assert_eq!(
+            map_entry("Pack\\Sub\\b.archive.xl", "m").unwrap().unwrap(),
+            PathBuf::from("archive/pc/mod/Pack/Sub/b.archive.xl")
+        );
+        assert_eq!(map_entry("Pack/x.reds", "m").unwrap().unwrap(), PathBuf::from("r6/scripts/Pack/x.reds"));
+        assert!(matches!(map_entry("Pack/tool.bin", "m"), Err(AppError::Unmappable(_))));
+        assert!(matches!(map_entry("Pack/../x.archive", "m"), Err(AppError::UnsafePath(_))));
+        assert!(map_entry("Pack/readme.txt", "m").unwrap().is_none());
     }
 
     #[test]
@@ -177,6 +195,17 @@ mod tests {
             assert!(matches!(map_entry(bad, "m"), Err(AppError::UnsafePath(_))), "{bad}");
         }
         assert!(map_entry("bin/x64/winmm.dll", "m").unwrap().is_some());
+        assert_eq!(
+            map_entry("engine/tools/scc.exe", "m").unwrap().unwrap(),
+            PathBuf::from("engine/tools/scc.exe")
+        );
+        assert_eq!(
+            map_entry("ENGINE\\Tools\\scc.EXE", "m").unwrap().unwrap(),
+            PathBuf::from("ENGINE/Tools/scc.EXE")
+        );
+        for bad in ["engine/scc.exe", "engine/tools.exe", "bin/x64/tools/scc.exe", "r6/scripts/scc.exe"] {
+            assert!(matches!(map_entry(bad, "m"), Err(AppError::UnsafePath(_))), "{bad}");
+        }
         assert!(map_entry("archive/pc/mod/console.archive", "m").unwrap().is_some());
         assert!(map_entry("archive/pc/mod/com10.archive", "m").unwrap().is_some());
     }

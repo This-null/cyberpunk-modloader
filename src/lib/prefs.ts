@@ -12,6 +12,14 @@ export function isAutoTranslate(v: unknown): v is AutoTranslate {
   return typeof v === "string" && (TRANSLATES as string[]).includes(v);
 }
 
+export function isUpdates(v: unknown): v is "on" | "off" {
+  return v === "on" || v === "off";
+}
+
+export function isTranslateLang(v: unknown): v is string {
+  return v === "app" || (typeof v === "string" && v !== "auto" && isLocaleChoice(v));
+}
+
 export function isMotion(v: unknown): v is Motion {
   return typeof v === "string" && (MOTIONS as string[]).includes(v);
 }
@@ -30,13 +38,15 @@ export async function startPrefsSync(): Promise<void> {
   if (isTheme(saved?.theme)) useSettings.setState({ theme: saved.theme });
   if (isMotion(saved?.motion)) useSettings.setState({ motion: saved.motion });
   if (isAutoTranslate(saved?.translate)) useSettings.setState({ translate: saved.translate });
+  if (isUpdates(saved?.updates)) useSettings.setState({ updates: saved.updates });
+  if (isTranslateLang(saved?.translate_lang)) useSettings.setState({ translateLang: saved.translate_lang });
   const push = () => {
-    const { theme, motion, translate } = useSettings.getState();
-    void ipc.setPrefs(useLocale.getState().choice, theme, motion, translate).catch(() => {});
+    const { theme, motion, translate, updates, translateLang } = useSettings.getState();
+    void ipc.setPrefs(useLocale.getState().choice, theme, motion, translate, updates, translateLang).catch(() => {});
   };
   useLocale.subscribe(push);
   useSettings.subscribe((s, prev) => {
-    if (s.theme !== prev.theme || s.motion !== prev.motion || s.translate !== prev.translate) push();
+    if (s.theme !== prev.theme || s.motion !== prev.motion || s.translate !== prev.translate || s.updates !== prev.updates || s.translateLang !== prev.translateLang) push();
   });
   push();
 }

@@ -1,11 +1,22 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
-import { ipc, toAppError, type NexusCategory, type NexusMod } from "../lib/ipc";
+import { ipc, toAppError, type NexusCategory, type NexusMod, type NexusRequirement } from "../lib/ipc";
 import { categoryNames, SEARCH_PAGE, type Sort } from "../lib/browse";
 import { useErrors } from "./errors";
 import { useMods } from "./mods";
 
+export interface RequirementsEntry {
+  loading: boolean;
+  failed: boolean;
+  items: NexusRequirement[];
+}
+
 interface BrowseState {
+  reqs: Record<number, RequirementsEntry>;
+  loadReqs: (modId: number) => Promise<void>;
+  installMissing: (modId: number) => Promise<void>;
+  installWithRequirements: (modId: number) => Promise<void>;
+  chain: { done: number; total: number } | null;
   items: NexusMod[];
   total: number;
   categories: NexusCategory[];
@@ -34,6 +45,10 @@ interface BrowseState {
 
 let ticket = 0;
 
+export function needed(items: NexusRequirement[], installed: number[]): NexusRequirement[] {
+  return items.filter((r) => !r.external && r.mod_id > 0 && !/optional/i.test(r.notes) && !installed.includes(r.mod_id));
+}
+
 export const useNexusBrowse = create<BrowseState>((set, get) => {
   function params(offset: number) {
     const s = get();
@@ -53,6 +68,8 @@ export const useNexusBrowse = create<BrowseState>((set, get) => {
   }
 
   return {
+    reqs: {},
+    chain: null,
     items: [],
     total: 0,
     categories: [],
@@ -130,6 +147,52 @@ export const useNexusBrowse = create<BrowseState>((set, get) => {
         useMods.getState().end();
         set({ installing: null, progress: null });
       }
+    },
+
+    loadReqs: async (modId) => {
+      const have = get().reqs[modId];
+      if (have && (have.loading || have.items.length > 0)) return;
+      set((st) => ({ reqs: { ...st.reqs, [modId]: { loading: true, failed: false, items: [] } } }));
+      try {
+        const items = await ipc.nexusRequirements(modId);
+        set((st) => ({ reqs: { ...st.reqs, [modId]: { loading: false, failed: false, items } } }));
+      } catch {
+        set((st) => ({ reqs: { ...st.reqs, [modId]: { loading: false, failed: true, items: [] } } }));
+      }
+    },
+
+    installMissing: async (modId) => {
+      const wanted = needed(get().reqs[modId]?.items ?? [], get().installed);
+      for (const r of wanted) {
+        await get().install(r.mod_id);
+        if (get().premiumNeeded || !get().installed.includes(r.mod_id)) break;
+      }
+    },
+
+    installWithRequirements: async (modId) => {
+      const depth = new Map<number, number>([[modId, 0]]);
+      let frontier = [modId];
+      for (let level = 1; level <= 3 && frontier.length > 0 && depth.size < 16; level++) {
+        const next: number[] = [];
+        for (const id of frontier) {
+          const items = await ipc.nexusRequirements(id).catch(() => [] as NexusRequirement[]);
+          for (const r of needed(items, get().installed)) {
+            if (!depth.has(r.mod_id) && depth.size < 16) {
+              depth.set(r.mod_id, level);
+              next.push(r.mod_id);
+            }
+          }
+        }
+        frontier = next;
+      }
+      const order = [...depth.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+      set({ chain: order.length > 1 ? { done: 0, total: order.length } : null });
+      for (const [i, id] of order.entries()) {
+        await get().install(id);
+        if (get().premiumNeeded || !get().installed.includes(id)) break;
+        set({ chain: order.length > 1 ? { done: i + 1, total: order.length } : null });
+      }
+      set({ chain: null });
     },
 
     setSort: (sort) => {

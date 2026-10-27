@@ -1,7 +1,8 @@
 import clsx from "clsx";
 import { ChevronDown, Pin } from "lucide-react";
 import { useEffect, useState } from "react";
-import { activeLocale, useLocale } from "../../i18n";
+import { useLocale } from "../../i18n";
+import { useTranslateState } from "../../lib/translate";
 import { ipc } from "../../lib/ipc";
 import { useSettings } from "../../stores/settings";
 import { Logo } from "../../brand/Logo";
@@ -64,12 +65,13 @@ export function NightCoopCard({ locked }: { locked: boolean }) {
   const latest: NcRelease | undefined =
     data?.releases.find((r) => r.version === data.latest && !r.yanked) ?? data?.releases.find((r) => !r.yanked);
   const busy = installing !== null || locked;
-  const lang = activeLocale(choice);
+  const { active: autoActive, lang } = useTranslateState();
+  void choice;
 
   const autoMode = useSettings((s) => s.translate);
   const setAutoMode = useSettings((s) => s.setTranslate);
   const sameTranslation = translated && latest && translated.version === latest.version && translated.lang === lang;
-  const wantAuto = autoMode === "on" && lang !== "en" && !!latest && latest.notes.length > 0 && !sameTranslation;
+  const wantAuto = autoActive && !!latest && latest.notes.length > 0 && !sameTranslation;
 
   useEffect(() => {
     if (wantAuto && !translating && !translateFailed) void translate();

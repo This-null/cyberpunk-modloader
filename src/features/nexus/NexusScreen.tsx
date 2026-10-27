@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import clsx from "clsx";
-import { Download } from "lucide-react";
+import { ChevronRight, Download } from "lucide-react";
 import { Logo } from "../../brand/Logo";
 import { activeLocale, useLocale, useT, type MessageKey } from "../../i18n";
 import { categoryName, categoryOptions, compactNumber, SORTS, type Sort } from "../../lib/browse";
 import { ipc, type NexusCategory, type NexusMod } from "../../lib/ipc";
 import { useIncoming } from "../../stores/incoming";
 import { useNexus } from "../../stores/nexus";
+import { useTranslated, useTranslateState, useTranslations } from "../../lib/translate";
+import { useSettings } from "../../stores/settings";
 import { useNexusBrowse } from "../../stores/nexusBrowse";
 import { percent } from "../../lib/nightcoop";
 
@@ -29,6 +31,8 @@ function Card({
   onInstall,
   onTag,
   locale,
+  requirements,
+  step,
 }: {
   mod: NexusMod;
   categories: NexusCategory[];
@@ -40,10 +44,13 @@ function Card({
   onInstall: () => void;
   onTag: (tag: string) => void;
   locale: string;
+  requirements: ReactNode;
+  step: { done: number; total: number } | null;
 }) {
   const t = useT();
   const [broken, setBroken] = useState(false);
   const category = categoryName(categories, mod.category_id);
+  const summary = useTranslated(mod.summary);
 
   return (
     <li
@@ -83,7 +90,7 @@ function Card({
         <p className="text-xs text-muted">
           {[mod.author ? t("nexusPage.by", { author: mod.author }) : "", category].filter(Boolean).join(" · ")}
         </p>
-        <p className="line-clamp-3 text-muted">{mod.summary}</p>
+        <p className="line-clamp-3 text-muted">{summary}</p>
         {mod.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {mod.tags.slice(0, 4).map((tag) => (
@@ -115,7 +122,9 @@ function Card({
               {installed
                 ? t("nexusPage.installed")
                 : progress !== null
-                  ? t("nexusPage.installingPercent", { percent: progress })
+                  ? step
+                    ? t("nexusPage.step", { done: Math.min(step.done + 1, step.total), total: step.total, percent: progress })
+                    : t("nexusPage.installingPercent", { percent: progress })
                   : t("nexusPage.install")}
             </button>
           )}
@@ -129,8 +138,108 @@ function Card({
             {t("nexusPage.open")}
           </button>
         </div>
+        {requirements}
       </div>
     </li>
+  );
+}
+
+function TranslateStrip() {
+  const t = useT();
+  const mode = useSettings((s) => s.translate);
+  const setMode = useSettings((s) => s.setTranslate);
+  const { active } = useTranslateState();
+  const showOriginal = useTranslations((s) => s.showOriginal);
+  const setShowOriginal = useTranslations((s) => s.setShowOriginal);
+  const appLang = activeLocale(useLocale((s) => s.choice));
+  const choice = useSettings((s) => s.translateLang);
+  if (mode === "ask" && (choice !== "app" || appLang !== "en")) {
+    return (
+      <div className="anim-rise flex flex-wrap items-center gap-3 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs">
+        <span className="min-w-0 flex-1 text-ink">{t("translate.askMods")}</span>
+        <button onClick={() => setMode("on")} className="rounded bg-accent px-3 py-1 font-medium text-accent-ink">{t("translate.yes")}</button>
+        <button onClick={() => setMode("off")} className="rounded border border-line px-3 py-1 hover:bg-surface-2">{t("translate.no")}</button>
+      </div>
+    );
+  }
+  if (!active) return null;
+  return (
+    <div className="flex items-center gap-3 text-xs text-muted">
+      <span>{t("translate.byGoogle")}</span>
+      <button onClick={() => setShowOriginal(!showOriginal)} className="text-accent hover:underline">
+        {showOriginal ? t("nightcoop.showTranslation") : t("nightcoop.showOriginal")}
+      </button>
+    </div>
+  );
+}
+
+function Requirements({ mod, premium }: { mod: NexusMod; premium: boolean }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const entry = useNexusBrowse((s) => s.reqs[mod.mod_id]);
+  const installed = useNexusBrowse((s) => s.installed);
+  const installing = useNexusBrowse((s) => s.installing);
+  const loadReqs = useNexusBrowse((s) => s.loadReqs);
+  const installMissing = useNexusBrowse((s) => s.installMissing);
+  const missing = (entry?.items ?? []).filter((r) => !r.external && r.mod_id > 0 && !installed.includes(r.mod_id));
+
+  function toggle() {
+    setOpen((v) => !v);
+    if (!open) void loadReqs(mod.mod_id);
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-2">
+      <button onClick={toggle} aria-expanded={open} className="flex items-center gap-2 text-left text-muted hover:text-ink">
+        <ChevronRight size={14} className={clsx("transition-transform", open && "rotate-90")} />
+        {t("nexusPage.requirements")}
+      </button>
+      {open && (
+        <div className="anim-rise flex flex-col gap-2">
+          {entry?.loading && <span className="text-xs text-muted">{t("nexusPage.loading")}</span>}
+          {entry?.failed && <span className="text-xs text-danger">{t("nexusPage.requirementsFailed")}</span>}
+          {entry && !entry.loading && !entry.failed && entry.items.length === 0 && (
+            <span className="text-xs text-muted">{t("nexusPage.noRequirements")}</span>
+          )}
+          {entry?.items.map((r) => {
+            const have = installed.includes(r.mod_id);
+            return (
+              <div key={`${r.mod_id}-${r.name}`} className="flex items-center justify-between gap-2 rounded bg-surface-2 px-2 py-1.5">
+                <span className="min-w-0 truncate">
+                  {r.name}
+                  {r.notes && <span className="text-xs text-muted"> {r.notes}</span>}
+                </span>
+                {have ? (
+                  <span className="shrink-0 text-xs text-ok">{t("nexusPage.installed")}</span>
+                ) : r.external || r.mod_id === 0 ? (
+                  <span className="shrink-0 text-xs text-muted">{t("nexusPage.external")}</span>
+                ) : (
+                  <button
+                    onClick={() => {
+                      useIncoming.getState().startWatch();
+                      void ipc.openUrl(`https://www.nexusmods.com/cyberpunk2077/mods/${r.mod_id}`);
+                    }}
+                    className="shrink-0 rounded border border-line px-2 py-0.5 text-xs hover:bg-surface"
+                  >
+                    {t("nexusPage.open")}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {premium && missing.length > 0 && (
+            <button
+              disabled={installing !== null}
+              onClick={() => void installMissing(mod.mod_id)}
+              className="self-start rounded bg-accent px-3 py-1.5 font-medium text-accent-ink disabled:opacity-60"
+            >
+              {t("nexusPage.installMissing", { count: missing.length })}
+            </button>
+          )}
+          {!premium && missing.length > 0 && <span className="text-xs text-muted">{t("nexusPage.requirementsFree")}</span>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -148,6 +257,7 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
   const failed = useNexusBrowse((s) => s.failed);
   const installing = useNexusBrowse((s) => s.installing);
   const progress = useNexusBrowse((s) => s.progress);
+  const chain = useNexusBrowse((s) => s.chain);
   const premiumNeeded = useNexusBrowse((s) => s.premiumNeeded);
   const sort = useNexusBrowse((s) => s.sort);
   const query = useNexusBrowse((s) => s.query);
@@ -157,7 +267,7 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
   const start = useNexusBrowse((s) => s.start);
   const reload = useNexusBrowse((s) => s.reload);
   const loadMore = useNexusBrowse((s) => s.loadMore);
-  const install = useNexusBrowse((s) => s.install);
+  const installWithRequirements = useNexusBrowse((s) => s.installWithRequirements);
   const setSort = useNexusBrowse((s) => s.setSort);
   const setQuery = useNexusBrowse((s) => s.setQuery);
   const setCategory = useNexusBrowse((s) => s.setCategory);
@@ -271,6 +381,7 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
               </button>
             )}
           </div>
+          <TranslateStrip />
           {(!premium || premiumNeeded) && <p className="rounded border border-line bg-surface p-3 text-muted">{t("nexusPage.premiumOnly")}</p>}
 
           <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto pr-1">
@@ -295,10 +406,12 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
                     installed={installedIds.includes(m.mod_id)}
                     canInstall={premium}
                     busy={installing !== null}
-                    progress={installing === m.mod_id ? percentDone : null}
-                    onInstall={() => void install(m.mod_id)}
+                    progress={installing !== null && (installing === m.mod_id || chain !== null) ? percentDone : null}
+                    step={installing !== null && chain !== null ? chain : null}
+                    onInstall={() => void installWithRequirements(m.mod_id)}
                     onTag={setTag}
                     locale={locale}
+                    requirements={<Requirements mod={m} premium={premium} />}
                   />
                 ))}
               </ul>

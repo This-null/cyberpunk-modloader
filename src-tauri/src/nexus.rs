@@ -451,9 +451,13 @@ pub fn download_link_with(
     };
     links
         .into_iter()
-        .map(|l| l.uri)
+        .map(|l| normalise_link(&l.uri))
         .find(|u| !u.is_empty())
         .ok_or_else(|| AppError::NotFound("download link".into()))
+}
+
+pub fn normalise_link(uri: &str) -> String {
+    uri.trim().replace(' ', "%20")
 }
 
 pub fn allowed_download_host(url: &str) -> bool {
@@ -736,11 +740,10 @@ pub fn parse_search(v: &serde_json::Value) -> Result<SearchPage, AppError> {
     Ok(SearchPage { items, total: page.get("totalCount").and_then(|x| x.as_u64()).unwrap_or(0) })
 }
 
-pub fn search(api: &Api, key: &str, params: &SearchParams) -> Result<SearchPage, AppError> {
+fn graphql(api: &Api, key: &str, body: &serde_json::Value) -> Result<serde_json::Value, AppError> {
     if !valid_key(key) {
         return Err(AppError::NexusKey);
     }
-    check_search(params)?;
     let mut secret = HeaderValue::from_str(key).map_err(|_| AppError::NexusKey)?;
     secret.set_sensitive(true);
     let response = client(api)?
@@ -749,12 +752,13 @@ pub fn search(api: &Api, key: &str, params: &SearchParams) -> Result<SearchPage,
         .header("Application-Name", APP_NAME)
         .header("Application-Version", env!("CARGO_PKG_VERSION"))
         .header("Content-Type", "application/json")
-        .body(search_body(params).to_string())
+        .body(body.to_string())
         .send()
         .map_err(net)?;
     match response.status() {
         s if s.is_success() => {}
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => return Err(AppError::NexusKey),
+        StatusCode::TOO_MANY_REQUESTS => return Err(AppError::RateLimited),
         s => return Err(net(format!("Nexus answered {s}"))),
     }
     let mut buf = Vec::new();
@@ -762,8 +766,62 @@ pub fn search(api: &Api, key: &str, params: &SearchParams) -> Result<SearchPage,
     if buf.len() as u64 > 4 * 1024 * 1024 {
         return Err(net("the answer is too large"));
     }
-    let value: serde_json::Value = serde_json::from_slice(&buf).map_err(net)?;
-    parse_search(&value)
+    serde_json::from_slice(&buf).map_err(net)
+}
+
+pub fn search(api: &Api, key: &str, params: &SearchParams) -> Result<SearchPage, AppError> {
+    check_search(params)?;
+    parse_search(&graphql(api, key, &search_body(params))?)
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct Requirement {
+    pub mod_id: u64,
+    pub name: String,
+    pub url: String,
+    pub external: bool,
+    pub notes: String,
+}
+
+const GAME_ID: &str = "3333";
+
+const REQUIREMENTS_QUERY: &str = "query($mod: ID!, $game: ID!) { mod(modId: $mod, gameId: $game) { modRequirements { nexusRequirements(count: 50) { nodes { modId modName url externalRequirement notes } } } } }";
+
+pub fn requirements_body(mod_id: u64) -> serde_json::Value {
+    serde_json::json!({
+        "query": REQUIREMENTS_QUERY,
+        "variables": { "mod": mod_id.to_string(), "game": GAME_ID }
+    })
+}
+
+pub fn parse_requirements(v: &serde_json::Value) -> Result<Vec<Requirement>, AppError> {
+    if let Some(errors) = v.get("errors").and_then(|e| e.as_array()).filter(|e| !e.is_empty()) {
+        let msg = errors[0].get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+        return Err(net(format!("Nexus requirements failed: {}", msg.chars().take(160).collect::<String>())));
+    }
+    let nodes = v
+        .pointer("/data/mod/modRequirements/nexusRequirements/nodes")
+        .and_then(|n| n.as_array())
+        .ok_or_else(|| net("Nexus gave no requirement list"))?;
+    let text = |n: &serde_json::Value, k: &str| n.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    Ok(nodes
+        .iter()
+        .map(|n| Requirement {
+            mod_id: n
+                .get("modId")
+                .and_then(|x| x.as_u64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(0),
+            name: text(n, "modName"),
+            url: text(n, "url"),
+            external: n.get("externalRequirement").and_then(|x| x.as_bool()).unwrap_or(false),
+            notes: text(n, "notes"),
+        })
+        .filter(|r| !r.name.is_empty())
+        .collect())
+}
+
+pub fn requirements(api: &Api, key: &str, mod_id: u64) -> Result<Vec<Requirement>, AppError> {
+    parse_requirements(&graphql(api, key, &requirements_body(mod_id))?)
 }
 
 pub trait KeyStore: Send + Sync {
@@ -1354,6 +1412,44 @@ mod tests {
         let v = serde_json::json!({"errors":[{"message":"Unknown field"}]});
         assert!(matches!(parse_search(&v), Err(AppError::Network(m)) if m.contains("Unknown field")));
         assert!(parse_search(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn a_download_link_with_spaces_in_the_file_name_is_made_valid_and_stays_trusted() {
+        let raw = "https://cf-files.nexusmods.com/cdn/3333/6072/MID LENGTH PACK-6072-1-0-1666862931.zip?md5=abc&expires=1";
+        assert!(!allowed_download_host(raw));
+        let fixed = normalise_link(raw);
+        assert_eq!(fixed, "https://cf-files.nexusmods.com/cdn/3333/6072/MID%20LENGTH%20PACK-6072-1-0-1666862931.zip?md5=abc&expires=1");
+        assert!(allowed_download_host(&fixed));
+        assert!(!allowed_download_host(&normalise_link("https://evil.example/a b.zip")));
+        assert!(!allowed_download_host(&normalise_link("https://cf-files.nexusmods.com@evil.example/a b")));
+        assert!(!allowed_download_host(&normalise_link("https://cf-files.nexusmods.com/a
+b")));
+    }
+
+    #[test]
+    fn requirements_are_asked_for_by_mod_and_game() {
+        let b = requirements_body(107);
+        assert_eq!(b["variables"]["mod"], "107");
+        assert_eq!(b["variables"]["game"], GAME_ID);
+        assert!(b["query"].as_str().unwrap().contains("nexusRequirements"));
+    }
+
+    #[test]
+    fn requirements_answers_become_a_short_list() {
+        let v = serde_json::json!({"data":{"mod":{"modRequirements":{"nexusRequirements":{"nodes":[
+            {"modId":"1","modName":"Cyber Engine Tweaks","url":"https://www.nexusmods.com/cyberpunk2077/mods/107","externalRequirement":false,"notes":null},
+            {"modId":2,"modName":"redscript","url":"https://www.nexusmods.com/cyberpunk2077/mods/1511","externalRequirement":false,"notes":"0.5.32"},
+            {"modId":"0","modName":"Some Tool","url":"https://example.com/tool","externalRequirement":true},
+            {"modId":"3","modName":"","url":"x","externalRequirement":false}
+        ]}}}}});
+        let list = parse_requirements(&v).unwrap();
+        assert_eq!(list.len(), 3);
+        assert_eq!((list[0].mod_id, list[0].name.as_str()), (1, "Cyber Engine Tweaks"));
+        assert_eq!(list[1].notes, "0.5.32");
+        assert!(list[2].external && list[2].mod_id == 0);
+        assert!(parse_requirements(&serde_json::json!({"errors":[{"message":"nope"}]})).is_err());
+        assert!(parse_requirements(&serde_json::json!({"data":{"mod":null}})).is_err());
     }
 
     #[test]

@@ -9,8 +9,8 @@ export function Splash() {
 
   useEffect(() => {
     if (phase === "gone") return;
-    const leave = setTimeout(() => setPhase("leave"), 1300);
-    const gone = setTimeout(() => setPhase("gone"), 1650);
+    const leave = setTimeout(() => setPhase("leave"), 2700);
+    const gone = setTimeout(() => setPhase("gone"), 3000);
     return () => {
       clearTimeout(leave);
       clearTimeout(gone);

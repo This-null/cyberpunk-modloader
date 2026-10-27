@@ -181,6 +181,19 @@ fn read_bytes(archive: &mut ZipArchive<fs::File>, index: usize, cap: u64) -> Res
     Ok(buf)
 }
 
+fn same_mod_name(a: &str, b: &str) -> bool {
+    fn plain(s: &str) -> String {
+        let lower = s.trim().to_ascii_lowercase();
+        match lower.rfind(" (") {
+            Some(i) if lower.ends_with(')') && lower[i + 2..lower.len() - 1].chars().all(|c| c.is_ascii_digit()) && lower.len() - 1 > i + 2 => {
+                lower[..i].trim_end().to_string()
+            }
+            _ => lower,
+        }
+    }
+    plain(a) == plain(b)
+}
+
 fn read_json<T: DeserializeOwned>(
     archive: &mut ZipArchive<fs::File>,
     entries: &[(usize, String, u64)],
@@ -402,6 +415,19 @@ impl Library {
         suggested: &str,
         limits: &Limits,
     ) -> Result<Vec<ModRecord>, AppError> {
+        self.install_report_with(zip_path, suggested, limits).map(|r| r.0)
+    }
+
+    pub fn install_report(&self, zip_path: &Path, suggested: &str) -> Result<(Vec<ModRecord>, Vec<String>), AppError> {
+        self.install_report_with(zip_path, suggested, &Limits::default())
+    }
+
+    pub fn install_report_with(
+        &self,
+        zip_path: &Path,
+        suggested: &str,
+        limits: &Limits,
+    ) -> Result<(Vec<ModRecord>, Vec<String>), AppError> {
         let mut archive = ZipArchive::new(fs::File::open(zip_path)?)?;
         if archive.len() > limits.max_entries {
             return Err(AppError::Zip("the archive has too many entries".into()));
@@ -435,6 +461,23 @@ impl Library {
                 let cleaned = sanitize_name(&manifest.name);
                 let base = if cleaned.is_empty() { suggested.to_string() } else { cleaned };
                 jobs.push((base, String::new(), manifest));
+            }
+        }
+
+        let mut skipped: Vec<String> = Vec::new();
+        if !single {
+            let existing = self.load()?;
+            jobs.retain(|(name, _, manifest)| {
+                let dup = existing
+                    .iter()
+                    .any(|r| same_mod_name(&r.name, name) && r.version.trim() == manifest.version.trim());
+                if dup {
+                    skipped.push(name.clone());
+                }
+                !dup
+            });
+            if jobs.is_empty() {
+                return Ok((Vec::new(), skipped));
             }
         }
 
@@ -500,7 +543,7 @@ impl Library {
                 return Err(e);
             }
         }
-        Ok(added)
+        Ok((added, skipped))
     }
 
     pub fn adopt(&self, name: &str, files: &[String]) -> Result<ModRecord, AppError> {
@@ -739,14 +782,16 @@ impl Library {
         if target.enabled {
             return Ok(());
         }
-        let others: Vec<String> = match target.source.as_deref() {
-            Some(source) => records
-                .iter()
-                .filter(|r| r.enabled && r.name != name && r.source.as_deref() == Some(source))
-                .map(|r| r.name.clone())
-                .collect(),
-            None => Vec::new(),
+        let same_mod = |r: &ModRecord| {
+            let tagged = target.source.is_some() && r.source == target.source;
+            let nexus = target.nexus_id.is_some_and(|id| id > 0) && r.nexus_id == target.nexus_id;
+            tagged || nexus
         };
+        let others: Vec<String> = records
+            .iter()
+            .filter(|r| r.enabled && r.name != name && same_mod(r))
+            .map(|r| r.name.clone())
+            .collect();
         let conflicts: Vec<_> = find_conflicts(&self.game, &records, target)
             .into_iter()
             .filter(|c| !c.owner.as_ref().is_some_and(|o| others.contains(o)))
@@ -773,6 +818,26 @@ impl Library {
                 Err(e)
             }
         }
+    }
+
+    pub fn replace_older(&self, names: &[String]) -> Vec<String> {
+        let mut replaced = Vec::new();
+        for name in names {
+            let wanted = self.load().is_ok_and(|records| {
+                let Some(target) = records.iter().find(|r| &r.name == name) else {
+                    return false;
+                };
+                !target.enabled
+                    && target.nexus_id.is_some_and(|id| id > 0)
+                    && records
+                        .iter()
+                        .any(|r| r.enabled && &r.name != name && r.nexus_id == target.nexus_id)
+            });
+            if wanted && self.activate_exclusive(name, false).is_ok() {
+                replaced.push(name.clone());
+            }
+        }
+        replaced
     }
 
     pub fn enable(&self, name: &str, force: bool) -> Result<(), AppError> {
@@ -1087,6 +1152,61 @@ mod tests {
     }
 
     const CET: &str = "bin/x64/plugins/cyber_engine_tweaks/mods/m/init.lua";
+
+    #[test]
+    fn a_new_version_of_a_nexus_mod_takes_the_place_of_the_enabled_old_one() {
+        let e = env();
+        let old = make_zip(&e.work, "old.zip", &[("archive/pc/mod/a.archive", "old"), ("archive/pc/mod/only_old.archive", "x")]);
+        let new = make_zip(&e.work, "new.zip", &[("archive/pc/mod/a.archive", "new"), ("archive/pc/mod/b.archive", "b")]);
+        let o = inst(&e.lib, &old, "Cool 1").unwrap();
+        e.lib.set_nexus_id(&o.name, Some(77)).unwrap();
+        e.lib.enable(&o.name, false).unwrap();
+        let n = inst(&e.lib, &new, "Cool 2").unwrap();
+        e.lib.set_nexus_id(&n.name, Some(77)).unwrap();
+        assert_eq!(e.lib.replace_older(&[n.name.clone()]), vec![n.name.clone()]);
+        assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/a.archive")).unwrap(), "new");
+        assert!(e.game.join("archive/pc/mod/b.archive").exists());
+        assert!(!e.game.join("archive/pc/mod/only_old.archive").exists());
+        let list = e.lib.list().unwrap();
+        assert!(list.iter().find(|r| r.name == n.name).unwrap().enabled);
+        assert!(!list.iter().find(|r| r.name == o.name).unwrap().enabled);
+    }
+
+    #[test]
+    fn nothing_is_swapped_when_the_old_version_was_not_in_use_or_is_another_mod() {
+        let e = env();
+        let a = make_zip(&e.work, "a.zip", &[("archive/pc/mod/a.archive", "a")]);
+        let b = make_zip(&e.work, "b.zip", &[("archive/pc/mod/b.archive", "b")]);
+        let c = make_zip(&e.work, "c.zip", &[("archive/pc/mod/c.archive", "c")]);
+        let ra = inst(&e.lib, &a, "A").unwrap();
+        e.lib.set_nexus_id(&ra.name, Some(1)).unwrap();
+        let rb = inst(&e.lib, &b, "B").unwrap();
+        e.lib.set_nexus_id(&rb.name, Some(1)).unwrap();
+        assert!(e.lib.replace_older(&[rb.name.clone()]).is_empty());
+        let rc = inst(&e.lib, &c, "C").unwrap();
+        e.lib.set_nexus_id(&rc.name, Some(2)).unwrap();
+        e.lib.enable(&ra.name, false).unwrap();
+        assert!(e.lib.replace_older(&[rc.name.clone()]).is_empty());
+        assert!(e.game.join("archive/pc/mod/a.archive").exists());
+        assert!(e.lib.replace_older(&["missing".to_string()]).is_empty());
+    }
+
+    #[test]
+    fn a_swap_that_would_overwrite_someone_elses_file_leaves_the_old_version_running() {
+        let e = env();
+        let old = make_zip(&e.work, "old.zip", &[("archive/pc/mod/a.archive", "old")]);
+        let new = make_zip(&e.work, "new.zip", &[("archive/pc/mod/a.archive", "new"), ("archive/pc/mod/taken.archive", "new")]);
+        let o = inst(&e.lib, &old, "Cool 1").unwrap();
+        e.lib.set_nexus_id(&o.name, Some(5)).unwrap();
+        e.lib.enable(&o.name, false).unwrap();
+        fs::write(e.game.join("archive/pc/mod/taken.archive"), "someone else").unwrap();
+        let n = inst(&e.lib, &new, "Cool 2").unwrap();
+        e.lib.set_nexus_id(&n.name, Some(5)).unwrap();
+        assert!(e.lib.replace_older(&[n.name.clone()]).is_empty());
+        assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/a.archive")).unwrap(), "old");
+        assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/taken.archive")).unwrap(), "someone else");
+        assert!(e.lib.list().unwrap().iter().find(|r| r.name == o.name).unwrap().enabled);
+    }
 
     #[test]
     fn uninstalling_removes_every_installed_file_and_the_plugin_logs_it_left_behind() {
@@ -1473,8 +1593,44 @@ mod tests {
             fs::read_to_string(other.lib.root.join("b/archive/pc/mod/b.archive")).unwrap(),
             "B"
         );
-        let again = other.lib.install_any(&out, "pack").unwrap();
-        assert_eq!(again[0].name, "a (2)");
+        let (again, skipped) = other.lib.install_report(&out, "pack").unwrap();
+        assert!(again.is_empty());
+        assert_eq!(skipped, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(other.lib.list().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_pack_installs_only_the_mods_that_are_new_or_a_different_version() {
+        let e = env();
+        let za = make_zip(&e.work, "a.zip", &[("archive/pc/mod/a.archive", "A")]);
+        let zb = make_zip(&e.work, "b.zip", &[("archive/pc/mod/b.archive", "B")]);
+        inst(&e.lib, &za, "a").unwrap();
+        inst(&e.lib, &zb, "b").unwrap();
+        e.lib.set_info("b", "", "2.0", None).unwrap();
+        let out = e.work.join("pack.zip");
+        e.lib.export_pack(&["a".to_string(), "b".to_string()], &out).unwrap();
+
+        let other = env();
+        let zb_old = make_zip(&other.work, "bo.zip", &[("archive/pc/mod/b.archive", "B-old")]);
+        inst(&other.lib, &zb_old, "b").unwrap();
+        other.lib.set_info("b", "", "1.0", None).unwrap();
+        let (added, skipped) = other.lib.install_report(&out, "pack").unwrap();
+        let mut names: Vec<_> = added.iter().map(|r| r.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, vec!["a", "b (2)"]);
+        assert!(skipped.is_empty());
+        let (again, skipped) = other.lib.install_report(&out, "pack").unwrap();
+        assert!(again.is_empty());
+        assert_eq!(skipped.len(), 2);
+    }
+
+    #[test]
+    fn a_name_with_a_counter_is_the_same_mod() {
+        assert!(same_mod_name("Neon (2)", "neon"));
+        assert!(same_mod_name("Neon", "NEON (12)"));
+        assert!(!same_mod_name("Neon (v2)", "neon"));
+        assert!(!same_mod_name("Neon 2", "neon"));
+        assert!(!same_mod_name("()", ""));
     }
 
     #[test]

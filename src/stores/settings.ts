@@ -15,6 +15,10 @@ interface SettingsState {
   setMotion: (motion: Motion) => void;
   translate: AutoTranslate;
   setTranslate: (translate: AutoTranslate) => void;
+  updates: "on" | "off";
+  setUpdates: (updates: "on" | "off") => void;
+  translateLang: string;
+  setTranslateLang: (lang: string) => void;
   gameDir: string | null;
   detected: string[];
   invalid: boolean;
@@ -51,6 +55,10 @@ export const useSettings = create<SettingsState>()(
       setMotion: (motion) => set({ motion }),
       translate: "ask",
       setTranslate: (translate) => set({ translate }),
+      updates: "on",
+      setUpdates: (updates) => set({ updates }),
+      translateLang: "app",
+      setTranslateLang: (translateLang) => set({ translateLang }),
       gameDir: null,
       detected: [],
       invalid: false,
@@ -83,6 +91,6 @@ export const useSettings = create<SettingsState>()(
         }
       },
     }),
-    { name: "cp2077-theme", partialize: (s) => ({ theme: s.theme, motion: s.motion, translate: s.translate }) },
+    { name: "cp2077-theme", partialize: (s) => ({ theme: s.theme, motion: s.motion, translate: s.translate, updates: s.updates, translateLang: s.translateLang }) },
   ),
 );

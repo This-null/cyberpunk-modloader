@@ -5,6 +5,7 @@ import { useT } from "../i18n";
 import { ipc, type NxmLink } from "../lib/ipc";
 import { formatSize, percent } from "../lib/nightcoop";
 import { useIncoming } from "../stores/incoming";
+import { useUpdate } from "../stores/update";
 import { useMods } from "../stores/mods";
 import { useNexus } from "../stores/nexus";
 
@@ -94,6 +95,40 @@ export function DownloadsBanner() {
       <button onClick={() => dismiss(first.path)} aria-label={t("action.close")} className="rounded p-1 text-muted hover:text-ink">
         <X size={16} />
       </button>
+    </div>
+  );
+}
+
+export function UpdateBanner() {
+  const t = useT();
+  const status = useUpdate((s) => s.status);
+  const version = useUpdate((s) => s.version);
+  const percent = useUpdate((s) => s.percent);
+  const hidden = useUpdate((s) => s.hidden);
+  const install = useUpdate((s) => s.install);
+  const hide = useUpdate((s) => s.hide);
+  const busy = useMods((s) => s.busy);
+  if (hidden || (status !== "available" && status !== "downloading")) return null;
+  return (
+    <div className="anim-rise flex items-center gap-3 border-b border-accent/40 bg-accent/10 px-4 py-2">
+      <Download size={16} className="shrink-0 text-accent" />
+      <span className="min-w-0 flex-1 truncate">
+        {status === "downloading" ? t("update.downloading", { percent }) : t("update.available", { version })}
+      </span>
+      {status === "available" && (
+        <>
+          <button
+            disabled={busy}
+            onClick={() => void install()}
+            className="rounded bg-accent px-3 py-1 font-medium text-accent-ink disabled:opacity-60"
+          >
+            {t("update.now")}
+          </button>
+          <button onClick={hide} className="rounded border border-line px-3 py-1 hover:bg-surface-2">
+            {t("update.later")}
+          </button>
+        </>
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ mod meta;
 mod nexus;
 mod nightcoop;
 mod nxm;
+mod profile;
 mod report;
 mod version;
 mod scan;
@@ -52,6 +53,8 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data)?;
@@ -92,7 +95,13 @@ pub fn run() {
             commands::nexus_check,
             commands::nexus_browse,
             commands::translate_notes,
+            commands::profile_build,
+            commands::profile_open,
+            commands::profile_share,
+            commands::profile_save,
+            commands::profile_read,
             commands::nexus_search,
+            commands::nexus_requirements,
             commands::nexus_install,
             commands::nexus_install_nxm,
             commands::nexus_mod_name,

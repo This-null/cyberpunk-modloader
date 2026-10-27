@@ -62,7 +62,7 @@ const library = [
 
 const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
   detect_games: () => ["D:\\SteamLibrary\\steamapps\\common\\Cyberpunk 2077"],
-  get_prefs: () => ({ locale: null, theme: null, motion: null, translate: null }),
+  get_prefs: () => ({ locale: null, theme: null, motion: null, translate: null, updates: null, translate_lang: null }),
   set_prefs: () => null,
   get_game_dir: () => "D:\\SteamLibrary\\steamapps\\common\\Cyberpunk 2077",
   set_game_dir: () => null,
@@ -70,7 +70,7 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
   list_mods: () => library,
   scan_external: () => [],
   mod_image: () => null,
-  app_info: () => ({ version: "0.0.1-beta", data_dir: "C:\\Users\\you\\AppData\\Roaming\\com.skydev.cp2077modlauncher" }),
+  app_info: () => ({ version: "0.0.2-beta", data_dir: "C:\\Users\\you\\AppData\\Roaming\\com.skydev.cp2077modlauncher" }),
   nc_fetch: () => ({ updated: "", latest: "0.1.1-beta.2", offline: false, releases: [] }),
   nc_detect: () => null,
   nexus_status: () => ({ connected: true, user: { name: "Ayse", is_premium: true, is_supporter: false } }),
@@ -93,6 +93,10 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
   downloads_recent: () => [],
   nexus_mod_name: () => "Neon Streets Reloaded",
   translate_notes: (a) => (a.lines as string[]).map((l) => `[${a.lang}] ${l}`),
+  nexus_requirements: () => [{ mod_id: 107, name: "Cyber Engine Tweaks", url: "", external: false, notes: "" }, { mod_id: 1511, name: "redscript", url: "", external: false, notes: "0.5.32" }, { mod_id: 0, name: "Some Tool", url: "", external: true, notes: "" }],
+  profile_build: () => ({ code: "CP2077:abc", json: "{}", count: 3, skipped: ["Hand made"] }),
+  profile_open: () => ({ name: "My setup", encoded: "CP2077:abc", items: [{ source: "nexus", mod_id: 107, version: "1.38.1", name: "Cyber Engine Tweaks", installed: true }, { source: "nexus", mod_id: 1511, version: "0.5.32", name: "redscript", installed: false }] }),
+  profile_share: () => ({ code: "ABCD2345", expires: Math.floor(Date.now() / 1000) + 43200 }),
   nexus_install: () => ["Installed"],
   logs_scan: () => [],
   logs_summary: () => null,

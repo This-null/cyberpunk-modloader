@@ -132,6 +132,35 @@ export interface FoundDownload {
   modified: number;
 }
 
+export interface NexusRequirement {
+  mod_id: number;
+  name: string;
+  url: string;
+  external: boolean;
+  notes: string;
+}
+
+export interface ProfilePlanItem {
+  source: string;
+  mod_id: number;
+  version: string;
+  name: string;
+  installed: boolean;
+}
+
+export interface ProfileBuilt {
+  code: string;
+  json: string;
+  count: number;
+  skipped: string[];
+}
+
+export interface ProfileView {
+  name: string;
+  items: ProfilePlanItem[];
+  encoded: string;
+}
+
 export interface NexusUser {
   name: string;
   is_premium: boolean;
@@ -186,7 +215,8 @@ export const ipc = {
   listMods: () => invoke<ModRecord[]>("list_mods"),
   scanExternal: () => invoke<ExternalMod[]>("scan_external"),
   importMod: (name: string) => invoke<ModRecord>("import_mod", { name }),
-  installMod: (zipPath: string, name: string) => invoke<ModRecord[]>("install_mod", { zipPath, name }),
+  installMod: (zipPath: string, name: string) =>
+    invoke<{ added: ModRecord[]; skipped: string[] }>("install_mod", { zipPath, name }),
   setModInfo: (name: string, description: string, version: string, imagePath: string | null) =>
     invoke<ModRecord>("set_mod_info", { name, description, version, imagePath }),
   modImage: (name: string) => invoke<string | null>("mod_image", { name }),
@@ -210,6 +240,12 @@ export const ipc = {
   downloadsRecent: (since: number) => invoke<FoundDownload[]>("downloads_recent", { since }),
   installDownload: (path: string) => invoke<ModRecord[]>("install_download", { path }),
   translateNotes: (lines: string[], lang: string) => invoke<string[]>("translate_notes", { lines, lang }),
+  nexusRequirements: (modId: number) => invoke<NexusRequirement[]>("nexus_requirements", { modId }),
+  profileBuild: (names: string[], title: string) => invoke<ProfileBuilt>("profile_build", { names, title }),
+  profileOpen: (text: string) => invoke<ProfileView>("profile_open", { text }),
+  profileShare: (encoded: string) => invoke<{ code: string; expires: number }>("profile_share", { encoded }),
+  profileSave: (path: string, text: string) => invoke<void>("profile_save", { path, text }),
+  profileRead: (path: string) => invoke<string>("profile_read", { path }),
   nexusInstall: (modId: number) => invoke<string[]>("nexus_install", { modId }),
   nexusProbe: () => invoke<number>("nexus_probe"),
   ncFetch: (lang: string) => invoke<NcData>("nc_fetch", { lang }),
@@ -227,9 +263,16 @@ export const ipc = {
   logsPoll: (id: string, from: number) => invoke<LogChunk>("logs_poll", { id, from }),
   logsSummary: () => invoke<CrashSummary | null>("logs_summary"),
   getPrefs: () =>
-    invoke<{ locale: string | null; theme: string | null; motion: string | null; translate: string | null }>("get_prefs"),
-  setPrefs: (locale: string, theme: string, motion: string, translate: string) =>
-    invoke<void>("set_prefs", { locale, theme, motion, translate }),
+    invoke<{
+      locale: string | null;
+      theme: string | null;
+      motion: string | null;
+      translate: string | null;
+      updates: string | null;
+      translate_lang: string | null;
+    }>("get_prefs"),
+  setPrefs: (locale: string, theme: string, motion: string, translate: string, updates: string, translateLang: string) =>
+    invoke<void>("set_prefs", { locale, theme, motion, translate, updates, translateLang }),
   logsOpen: (id: string) => invoke<void>("logs_open", { id }),
   logsReveal: (id: string) => invoke<void>("logs_reveal", { id }),
   logsClear: () => invoke<{ removed: number; freed: number }>("logs_clear"),

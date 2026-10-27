@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Um gerenciador de mods não oficial, feito pela comunidade, para Cyberpunk 2077 no Windows. Versão 0.0.1 beta.
+Um gerenciador de mods não oficial, feito pela comunidade, para Cyberpunk 2077 no Windows. Versão 0.0.2 beta.
 
 Ele não é feito por nem tem ligação com a CD PROJEKT RED, a Nexus Mods ou a equipe do NightCoop.
 
@@ -15,6 +15,7 @@ Ele não é feito por nem tem ligação com a CD PROJEKT RED, a Nexus Mods ou a 
 - Junta várias versões de um mesmo mod em um único cartão, assim dá para ver qual é a atual.
 - Verifica e instala versões do NightCoop pelo site oficial e confere cada download com SHA-256.
 - Navega e busca na Nexus Mods com filtros, tags e rolagem infinita. Contas gratuitas podem instalar por links nxm ou pela pasta de downloads.
+- Mostra o que cada mod da Nexus exige e compartilha sua lista de mods como perfil (um código ou um arquivo) para que outros instalem o que falta.
 - Mostra os logs do jogo, dos mods e do launcher, e apaga quando você pedir.
 - Fala inglês, turco, russo, espanhol, português do Brasil, francês, polonês e alemão.
 - Tem temas do sistema, escuro e claro.
@@ -27,7 +28,7 @@ Ele não é feito por nem tem ligação com a CD PROJEKT RED, a Nexus Mods ou a 
 
 ## Privacidade
 
-Nada é enviado automaticamente. Os relatórios de erro só ficam salvos no seu computador. O launcher conversa com o site do NightCoop e com a Nexus Mods para listar e baixar mods. As notas da versão vão ao Google Tradutor só se você permitir em Configurações. Sua chave de API da Nexus fica no Gerenciador de Credenciais do Windows do seu computador.
+Nada é enviado automaticamente. Os relatórios de erro só ficam salvos no seu computador. O launcher conversa com o site do NightCoop e com a Nexus Mods para listar e baixar mods. Ele também lê o número da versão mais recente no GitHub para avisar sobre atualizações. Dá para desligar em Configurações. As notas da versão e as descrições dos mods vão ao Google Tradutor só se você permitir em Configurações. Compartilhar um perfil online envia ao nosso servidor só a sua lista de mods (fontes e versões, sem arquivos) e um ID aleatório criado no seu computador, só quando você clica no botão, e o código expira em 12 horas. Sua chave de API da Nexus fica no Gerenciador de Credenciais do Windows do seu computador.
 
 ## Compilar a partir do código
 

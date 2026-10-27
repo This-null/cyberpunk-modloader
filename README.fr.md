@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Un gestionnaire de mods non officiel, fait par la communauté, pour Cyberpunk 2077 sur Windows. Version 0.0.1 bêta.
+Un gestionnaire de mods non officiel, fait par la communauté, pour Cyberpunk 2077 sur Windows. Version 0.0.2 bêta.
 
 Il n'est pas créé par CD PROJEKT RED, Nexus Mods ou l'équipe NightCoop, ni affilié à eux.
 
@@ -15,6 +15,7 @@ Il n'est pas créé par CD PROJEKT RED, Nexus Mods ou l'équipe NightCoop, ni af
 - Regroupe plusieurs versions d'un même mod dans une seule carte, pour voir laquelle est la bonne.
 - Vérifie et installe les versions de NightCoop depuis le site officiel, et contrôle chaque téléchargement avec SHA-256.
 - Parcourt et recherche Nexus Mods avec filtres, tags et défilement infini. Les comptes gratuits peuvent installer via les liens nxm ou depuis le dossier de téléchargements.
+- Montre ce que requiert chaque mod Nexus et partage votre liste de mods comme profil (un code ou un fichier) pour que d'autres installent ce qui leur manque.
 - Affiche les journaux du jeu, des mods et du launcher, et les efface sur demande.
 - Parle anglais, turc, russe, espagnol, portugais du Brésil, français, polonais et allemand.
 - Propose des thèmes système, sombre et clair.
@@ -27,7 +28,7 @@ Il n'est pas créé par CD PROJEKT RED, Nexus Mods ou l'équipe NightCoop, ni af
 
 ## Confidentialité
 
-Rien n'est envoyé automatiquement. Les rapports d'erreur sont seulement enregistrés sur votre ordinateur. Le launcher contacte le site de NightCoop et Nexus Mods pour lister et télécharger les mods. Les notes de version vont à Google Traduction seulement si vous l'autorisez dans les réglages. Votre clé d'API Nexus reste dans le Gestionnaire d'informations d'identification Windows de votre ordinateur.
+Rien n'est envoyé automatiquement. Les rapports d'erreur sont seulement enregistrés sur votre ordinateur. Le launcher contacte le site de NightCoop et Nexus Mods pour lister et télécharger les mods. Il lit aussi le numéro de la dernière version sur GitHub pour signaler les mises à jour. Vous pouvez le désactiver dans les réglages. Les notes de version et les descriptions des mods vont à Google Traduction seulement si vous l'autorisez dans les réglages. Partager un profil en ligne envoie à notre serveur uniquement votre liste de mods (sources et versions, sans fichiers) et un identifiant aléatoire créé sur votre ordinateur, seulement quand vous appuyez sur le bouton, et le code expire après 12 heures. Votre clé d'API Nexus reste dans le Gestionnaire d'informations d'identification Windows de votre ordinateur.
 
 ## Compiler depuis les sources
 

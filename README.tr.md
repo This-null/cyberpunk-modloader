@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Windows için Cyberpunk 2077'ye yönelik resmi olmayan bir topluluk mod yöneticisi. Sürüm 0.0.1 beta.
+Windows için Cyberpunk 2077'ye yönelik resmi olmayan bir topluluk mod yöneticisi. Sürüm 0.0.2 beta.
 
 CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlarla bağlantılı değildir.
 
@@ -15,6 +15,7 @@ CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlar
 - Bir modun birden fazla sürümünü tek kartta toplar, hangisinin güncel olduğu görünür.
 - NightCoop sürümlerini resmi siteden kontrol edip kurar, her indirmeyi SHA-256 ile doğrular.
 - Nexus Mods'ta filtre, etiket ve sonsuz kaydırmayla gezer ve arar. Ücretsiz hesaplar nxm bağlantısı ya da indirilenler klasörü üzerinden kurabilir.
+- Her Nexus modunun neye ihtiyaç duyduğunu gösterir ve mod listeni profil olarak (kod ya da dosya) paylaşır, böylece başkaları eksiklerini kurabilir.
 - Oyun, mod ve launcher loglarını gösterir, istediğinde temizler.
 - İngilizce, Türkçe, Rusça, İspanyolca, Brezilya Portekizcesi, Fransızca, Lehçe ve Almanca konuşur.
 - Sistem, koyu ve açık tema vardır.
@@ -27,7 +28,7 @@ CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlar
 
 ## Gizlilik
 
-Hiçbir şey kendiliğinden bir yere gönderilmez. Hata raporları sadece bilgisayarına kaydedilir. Launcher, modları listelemek ve indirmek için NightCoop sitesi ve Nexus Mods ile konuşur. Sürüm notları Google Translate'e sadece Ayarlar'dan izin verirsen gider. Nexus API anahtarın bilgisayarındaki Windows Kimlik Bilgisi Yöneticisi'nde durur.
+Hiçbir şey kendiliğinden bir yere gönderilmez. Hata raporları sadece bilgisayarına kaydedilir. Launcher, modları listelemek ve indirmek için NightCoop sitesi ve Nexus Mods ile konuşur. Güncellemeleri haber vermek için GitHub'dan son sürüm numarasını da okur. Bunu Ayarlar'dan kapatabilirsin. Sürüm notları ve mod açıklamaları Google Translate'e sadece Ayarlar'dan izin verirsen gider. Profili çevrimiçi paylaşmak sunucumuza sadece mod listeni (kaynaklar ve sürümler, dosya yok) ve bilgisayarında üretilen rastgele bir kimliği gönderir, sadece düğmeye bastığında, ve kod 12 saat sonra geçersiz olur. Nexus API anahtarın bilgisayarındaki Windows Kimlik Bilgisi Yöneticisi'nde durur.
 
 ## Kaynaktan derleme
 

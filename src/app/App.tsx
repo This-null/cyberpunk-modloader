@@ -9,9 +9,10 @@ import { useErrors } from "../stores/errors";
 import { useMods } from "../stores/mods";
 import { useNexus } from "../stores/nexus";
 import { useNightcoop } from "../stores/nightcoop";
+import { useUpdate } from "../stores/update";
 import { applyMotion, applyTheme, useSettings } from "../stores/settings";
 import { ErrorDialog } from "./ErrorDialog";
-import { DownloadsBanner, IncomingDialog, useIncomingEvents } from "./Incoming";
+import { DownloadsBanner, IncomingDialog, UpdateBanner, useIncomingEvents } from "./Incoming";
 import { Splash } from "./Splash";
 import { Sidebar, type Page } from "./Sidebar";
 import { TitleBar } from "./TitleBar";
@@ -28,6 +29,13 @@ export function App() {
   }, [theme]);
 
   useIncomingEvents();
+  const updates = useSettings((s) => s.updates);
+
+  useEffect(() => {
+    if (updates !== "on") return;
+    const id = setTimeout(() => void useUpdate.getState().check(), 4000);
+    return () => clearTimeout(id);
+  }, [updates]);
 
   useEffect(() => {
     applyMotion(motion);
@@ -65,6 +73,7 @@ export function App() {
       <div className="flex min-h-0 flex-1">
         <Sidebar page={page} onChange={setPage} />
         <div className="flex min-w-0 flex-1 flex-col">
+        <UpdateBanner />
         <DownloadsBanner />
         <main className="min-w-0 flex-1 overflow-auto p-6">
           <div key={page} className="anim-page h-full">

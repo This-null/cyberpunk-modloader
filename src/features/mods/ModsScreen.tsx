@@ -22,6 +22,8 @@ import { ConflictDialog } from "./ConflictDialog";
 import { ExternalRow } from "./ExternalRow";
 import { groupMods, relation } from "../../lib/groups";
 import { ModCard } from "./ModCard";
+import { ProfileDialog } from "./ProfileDialog";
+import { useProfile } from "../../stores/profile";
 import { VersionRow } from "./VersionRow";
 import { ModDetails } from "./ModDetails";
 
@@ -50,6 +52,8 @@ export function ModsScreen() {
   const notice = useMods((s) => s.notice);
   const clearNotice = useMods((s) => s.clearNotice);
   const busy = useMods((s) => s.busy);
+  const skipped = useMods((s) => s.skipped);
+  const clearSkipped = useMods((s) => s.clearSkipped);
   const install = useMods((s) => s.install);
   const enable = useMods((s) => s.enable);
   const disable = useMods((s) => s.disable);
@@ -172,9 +176,24 @@ export function ModsScreen() {
 
   return (
     <div className="relative flex h-full flex-col gap-4">
+      <ProfileDialog names={selectedNames.length > 0 ? selectedNames : mods.map((m) => m.name)} />
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t("mods.title")}</h1>
         <div className="flex items-center gap-2">
+          <button
+            disabled={busy || mods.length === 0}
+            onClick={() => void useProfile.getState().open("share", selectedNames.length > 0 ? selectedNames : mods.map((m) => m.name))}
+            className="flex items-center gap-2 rounded border border-line px-4 py-2 hover:bg-surface-2"
+          >
+            {t("profile.share")}
+          </button>
+          <button
+            disabled={busy || !gameDir}
+            onClick={() => void useProfile.getState().open("import", [])}
+            className="flex items-center gap-2 rounded border border-line px-4 py-2 hover:bg-surface-2"
+          >
+            {t("profile.import")}
+          </button>
           <button
             disabled={busy || mods.length === 0}
             onClick={() => void pack()}
@@ -262,6 +281,16 @@ export function ModsScreen() {
         <p className="anim-rise flex items-center justify-between gap-3 rounded border border-line bg-surface p-3 text-ok">
           <span className="break-all">{t("export.saved", { path: notice })}</span>
           <button onClick={clearNotice} className="shrink-0 text-muted hover:text-ink">
+            {t("action.close")}
+          </button>
+        </p>
+      )}
+      {skipped.length > 0 && (
+        <p className="anim-rise flex items-center justify-between gap-3 rounded border border-line bg-surface p-3">
+          <span className="min-w-0 break-words">
+            {t("mods.skipped", { count: skipped.length, names: skipped.slice(0, 6).join(", ") + (skipped.length > 6 ? "..." : "") })}
+          </span>
+          <button onClick={clearSkipped} className="shrink-0 text-muted hover:text-ink">
             {t("action.close")}
           </button>
         </p>

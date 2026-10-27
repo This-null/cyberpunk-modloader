@@ -7,6 +7,7 @@ use crate::logs::{self, Chunk, LogFile};
 use crate::nexus;
 use crate::nightcoop::{self, Endpoint, ReleaseView};
 use crate::nxm;
+use crate::profile;
 use crate::scan::{self, ExternalMod};
 use crate::version::{self, BuildInfo, Detected};
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,12 @@ struct Settings {
     motion: Option<String>,
     #[serde(default)]
     translate: Option<String>,
+    #[serde(default)]
+    updates: Option<String>,
+    #[serde(default)]
+    translate_lang: Option<String>,
+    #[serde(default)]
+    install_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -37,6 +44,8 @@ pub struct Prefs {
     theme: Option<String>,
     motion: Option<String>,
     translate: Option<String>,
+    updates: Option<String>,
+    translate_lang: Option<String>,
 }
 
 pub fn write_atomic(path: PathBuf, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
@@ -126,7 +135,7 @@ pub fn get_game_dir(state: State<'_, AppState>) -> Option<String> {
 #[tauri::command]
 pub fn get_prefs(state: State<'_, AppState>) -> Prefs {
     let s = load_settings(&state.data);
-    Prefs { locale: s.locale, theme: s.theme, motion: s.motion, translate: s.translate }
+    Prefs { locale: s.locale, theme: s.theme, motion: s.motion, translate: s.translate, updates: s.updates, translate_lang: s.translate_lang }
 }
 
 #[tauri::command]
@@ -136,12 +145,16 @@ pub fn set_prefs(
     theme: String,
     motion: String,
     translate: String,
+    updates: String,
+    translate_lang: String,
 ) -> Result<(), AppError> {
     const LOCALES: [&str; 9] = ["auto", "en", "tr", "ru", "es", "pt-BR", "fr", "pl", "de"];
     if !LOCALES.contains(&locale.as_str())
         || !["system", "dark", "light"].contains(&theme.as_str())
         || !["system", "full", "reduced"].contains(&motion.as_str())
         || !["ask", "on", "off"].contains(&translate.as_str())
+        || !["on", "off"].contains(&updates.as_str())
+        || !(translate_lang == "app" || LOCALES[1..].contains(&translate_lang.as_str()))
     {
         return Err(AppError::State("unknown preference".into()));
     }
@@ -150,6 +163,8 @@ pub fn set_prefs(
     s.theme = Some(theme);
     s.motion = Some(motion);
     s.translate = Some(translate);
+    s.updates = Some(updates);
+    s.translate_lang = Some(translate_lang);
     save_settings(&state.data, &s)
 }
 
@@ -464,13 +479,28 @@ pub async fn nexus_check(
     logged(done)
 }
 
+#[derive(Serialize)]
+pub struct InstallResult {
+    added: Vec<ModRecord>,
+    skipped: Vec<String>,
+}
+
 fn install_archive(lib: &Library, data: &Path, path: &Path, name: &str) -> Result<Vec<ModRecord>, AppError> {
+    install_archive_report(lib, data, path, name).map(|r| r.0)
+}
+
+fn install_archive_report(
+    lib: &Library,
+    data: &Path,
+    path: &Path,
+    name: &str,
+) -> Result<(Vec<ModRecord>, Vec<String>), AppError> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let work = data.join("tmp").join(stamp.to_string());
-    let done = archive::to_zip(path, &work, crate::library::Limits::default()).and_then(|zip| lib.install_any(&zip, name));
+    let done = archive::to_zip(path, &work, crate::library::Limits::default()).and_then(|zip| lib.install_report(&zip, name));
     let _ = fs::remove_dir_all(&work);
     done
 }
@@ -562,6 +592,100 @@ pub async fn translate_notes(state: State<'_, AppState>, lines: Vec<String>, lan
 }
 
 #[tauri::command]
+pub async fn nexus_requirements(nx: State<'_, NexusState>, mod_id: u64) -> Result<Vec<nexus::Requirement>, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let done = tauri::async_runtime::spawn_blocking(move || nexus::requirements(&nexus::Api::official(), &key, mod_id))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[derive(Serialize)]
+pub struct ProfileBuilt {
+    code: String,
+    json: String,
+    count: usize,
+    skipped: Vec<String>,
+}
+
+#[tauri::command]
+pub fn profile_build(state: State<'_, AppState>, names: Vec<String>, title: String) -> Result<ProfileBuilt, AppError> {
+    let records = library(&state)?.list()?;
+    let built = profile::build(&records, &names, &title);
+    if built.profile.mods.is_empty() {
+        return logged(Err(AppError::Unmappable("nothing to share".into())));
+    }
+    Ok(ProfileBuilt {
+        code: profile::encode(&built.profile)?,
+        json: serde_json::to_string_pretty(&built.profile).map_err(|e| AppError::State(e.to_string()))?,
+        count: built.profile.mods.len(),
+        skipped: built.skipped,
+    })
+}
+
+#[derive(Serialize)]
+pub struct ProfileView {
+    name: String,
+    items: Vec<profile::PlanItem>,
+    encoded: String,
+}
+
+#[tauri::command]
+pub async fn profile_open(state: State<'_, AppState>, text: String) -> Result<ProfileView, AppError> {
+    let lib = library(&state)?;
+    let done = tauri::async_runtime::spawn_blocking(move || -> Result<ProfileView, AppError> {
+        let raw = if profile::is_short_code(&text) { profile::fetch(profile::SERVER, &text)? } else { text };
+        let p = profile::decode(&raw)?;
+        let items = profile::plan(&p, &lib.list()?);
+        Ok(ProfileView { name: p.name.clone(), items, encoded: profile::encode(&p)? })
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+fn install_id(data: &Path) -> Result<String, AppError> {
+    let mut s = load_settings(data);
+    if let Some(id) = s.install_id.clone().filter(|i| i.len() == 36) {
+        return Ok(id);
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    s.install_id = Some(id.clone());
+    save_settings(data, &s)?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn profile_share(state: State<'_, AppState>, encoded: String) -> Result<profile::Shared, AppError> {
+    let id = install_id(&state.data)?;
+    let done = tauri::async_runtime::spawn_blocking(move || profile::share(profile::SERVER, &encoded, &id))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub fn profile_save(path: String, text: String) -> Result<(), AppError> {
+    let p = PathBuf::from(&path);
+    let ok = text.len() <= 256 * 1024 && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json") || e.eq_ignore_ascii_case("cp2077profile"));
+    if !ok {
+        return logged(Err(AppError::UnsafePath(path.chars().take(80).collect())));
+    }
+    logged(write_atomic(p, text).map_err(AppError::from))
+}
+
+#[tauri::command]
+pub fn profile_read(path: String) -> Result<String, AppError> {
+    let p = PathBuf::from(&path);
+    let ok = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json") || e.eq_ignore_ascii_case("cp2077profile"))
+        && fs::metadata(&p).is_ok_and(|m| m.is_file() && m.len() <= 256 * 1024);
+    if !ok {
+        return logged(Err(AppError::UnsafePath(path.chars().take(80).collect())));
+    }
+    logged(fs::read_to_string(&p).map_err(AppError::from))
+}
+
+#[tauri::command]
 pub async fn nexus_search(nx: State<'_, NexusState>, params: nexus::SearchParams) -> Result<nexus::SearchPage, AppError> {
     let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
     let done = tauri::async_runtime::spawn_blocking(move || nexus::search(&nexus::Api::official(), &key, &params))
@@ -630,7 +754,9 @@ fn run_nexus_install(
         let version = if rec.version.is_empty() { file.version.clone() } else { rec.version.clone() };
         lib.set_info(&rec.name, &description, &version, None)?;
     }
-    Ok(records.into_iter().map(|r| r.name).collect())
+    let names: Vec<String> = records.into_iter().map(|r| r.name).collect();
+    lib.replace_older(&names);
+    Ok(names)
 }
 
 #[tauri::command]
@@ -741,7 +867,9 @@ pub async fn install_download(state: State<'_, AppState>, path: String) -> Resul
     let data = state.data.clone();
     let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned());
     let done = tauri::async_runtime::spawn_blocking(move || {
-        install_archive(&lib, &data, &file, &mod_folder_name(stem.as_deref(), 0))
+        let added = install_archive(&lib, &data, &file, &mod_folder_name(stem.as_deref(), 0))?;
+        lib.replace_older(&added.iter().map(|r| r.name.clone()).collect::<Vec<_>>());
+        Ok(added)
     })
     .await
     .map_err(|e| AppError::Io(e.to_string()))?;
@@ -763,9 +891,11 @@ pub fn install_mod(
     state: State<'_, AppState>,
     zip_path: String,
     name: String,
-) -> Result<Vec<ModRecord>, AppError> {
+) -> Result<InstallResult, AppError> {
     let lib = library(&state)?;
-    logged(install_archive(&lib, &state.data, Path::new(&zip_path), &name))
+    let (added, skipped) = logged(install_archive_report(&lib, &state.data, Path::new(&zip_path), &name))?;
+    lib.replace_older(&added.iter().map(|r| r.name.clone()).collect::<Vec<_>>());
+    Ok(InstallResult { added, skipped })
 }
 
 #[tauri::command]
@@ -820,7 +950,7 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
 #[tauri::command]
 pub fn enable_mod(state: State<'_, AppState>, name: String, force: bool) -> Result<(), AppError> {
     guard_not_running(game::is_game_running())?;
-    logged(library(&state)?.enable(&name, force))
+    logged(library(&state)?.activate_exclusive(&name, force))
 }
 
 #[tauri::command]
@@ -1076,6 +1206,16 @@ mod tests {
     }
 
     #[test]
+    fn the_install_id_is_made_once_and_kept_with_the_other_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_settings(tmp.path(), &Settings { game_dir: Some("D:\\g".into()), ..Default::default() }).unwrap();
+        let a = install_id(tmp.path()).unwrap();
+        assert_eq!(a.len(), 36);
+        assert_eq!(install_id(tmp.path()).unwrap(), a);
+        assert_eq!(load_settings(tmp.path()).game_dir.as_deref(), Some("D:\\g"));
+    }
+
+    #[test]
     fn atomic_writes_replace_the_file_and_leave_no_temp_file() {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("a.json");
@@ -1118,13 +1258,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(settings_path(tmp.path()), r#"{"game_dir":"D:\\g"}"#).unwrap();
         let old = load_settings(tmp.path());
-        assert_eq!((old.locale, old.theme, old.motion, old.translate), (None, None, None, None));
+        assert_eq!((old.locale, old.theme, old.motion, old.translate, old.updates, old.translate_lang), (None, None, None, None, None, None));
         save_settings(
             tmp.path(),
-            &Settings { locale: Some("ru".into()), theme: Some("dark".into()), motion: Some("full".into()), translate: Some("on".into()), ..Default::default() },
+            &Settings { locale: Some("ru".into()), theme: Some("dark".into()), motion: Some("full".into()), translate: Some("on".into()), updates: Some("off".into()), translate_lang: Some("de".into()), ..Default::default() },
         )
         .unwrap();
         let back = load_settings(tmp.path());
-        assert_eq!((back.locale.as_deref(), back.theme.as_deref(), back.motion.as_deref(), back.translate.as_deref()), (Some("ru"), Some("dark"), Some("full"), Some("on")));
+        assert_eq!((back.locale.as_deref(), back.theme.as_deref(), back.motion.as_deref(), back.translate.as_deref(), back.updates.as_deref(), back.translate_lang.as_deref()), (Some("ru"), Some("dark"), Some("full"), Some("on"), Some("off"), Some("de")));
     }
 }

@@ -20,6 +20,8 @@ interface ModsState {
   images: Record<string, string | null>;
   detail: string | null;
   notice: string | null;
+  skipped: string[];
+  clearSkipped: () => void;
   selected: string[];
   setSelected: (keys: string[]) => void;
   toggleSelected: (key: string) => void;
@@ -75,6 +77,8 @@ export const useMods = create<ModsState>((set, get) => {
     images: {},
     detail: null,
     notice: null,
+    skipped: [],
+    clearSkipped: () => set({ skipped: [] }),
     selected: [],
 
     setSelected: (keys) => set({ selected: keys }),
@@ -223,13 +227,19 @@ export const useMods = create<ModsState>((set, get) => {
 
     install: (paths) =>
       run(async () => {
-        for (const path of paths) {
-          const name = modNameFromPath(
-            path,
-            get().mods.map((m) => m.name),
-          );
-          await ipc.installMod(path, name);
-          await get().refresh();
+        const skipped: string[] = [];
+        try {
+          for (const path of paths) {
+            const name = modNameFromPath(
+              path,
+              get().mods.map((m) => m.name),
+            );
+            const done = await ipc.installMod(path, name);
+            skipped.push(...done.skipped);
+            await get().refresh();
+          }
+        } finally {
+          set({ skipped });
         }
       }),
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Nieoficjalny menedżer modów społeczności do Cyberpunk 2077 na Windows. Wersja 0.0.1 beta.
+Nieoficjalny menedżer modów społeczności do Cyberpunk 2077 na Windows. Wersja 0.0.2 beta.
 
 Nie jest tworzony przez CD PROJEKT RED, Nexus Mods ani zespół NightCoop i nie jest z nimi powiązany.
 
@@ -15,6 +15,7 @@ Nie jest tworzony przez CD PROJEKT RED, Nexus Mods ani zespół NightCoop i nie 
 - Zbiera kilka wersji jednego moda w jednej karcie, więc widać, która jest aktualna.
 - Sprawdza i instaluje wersje NightCoop z oficjalnej strony oraz weryfikuje każde pobranie sumą SHA-256.
 - Przegląda i przeszukuje Nexus Mods z filtrami, tagami i nieskończonym przewijaniem. Darmowe konta mogą instalować przez linki nxm albo z folderu pobranych plików.
+- Pokazuje, czego wymaga każdy mod z Nexusa, i udostępnia listę modów jako profil (kod lub plik), żeby inni mogli doinstalować brakujące.
 - Pokazuje logi gry, modów i launchera oraz czyści je na życzenie.
 - Mówi po angielsku, turecku, rosyjsku, hiszpańsku, brazylijskim portugalsku, francusku, polsku i niemiecku.
 - Ma motywy: systemowy, ciemny i jasny.
@@ -27,7 +28,7 @@ Nie jest tworzony przez CD PROJEKT RED, Nexus Mods ani zespół NightCoop i nie 
 
 ## Prywatność
 
-Nic nie jest wysyłane automatycznie. Raporty błędów zapisują się tylko na Twoim komputerze. Launcher łączy się ze stroną NightCoop i Nexus Mods, żeby wyświetlać i pobierać mody. Notatki do wydania trafiają do Tłumacza Google tylko wtedy, gdy na to pozwolisz w ustawieniach. Twój klucz API Nexusa zostaje w Menedżerze poświadczeń Windows na Twoim komputerze.
+Nic nie jest wysyłane automatycznie. Raporty błędów zapisują się tylko na Twoim komputerze. Launcher łączy się ze stroną NightCoop i Nexus Mods, żeby wyświetlać i pobierać mody. Odczytuje też z GitHuba numer najnowszej wersji, żeby informować o aktualizacjach. Możesz to wyłączyć w ustawieniach. Notatki do wydania i opisy modów trafiają do Tłumacza Google tylko wtedy, gdy na to pozwolisz w ustawieniach. Udostępnienie profilu online wysyła na nasz serwer tylko listę Twoich modów (źródła i wersje, bez plików) i losowy identyfikator utworzony na Twoim komputerze, tylko po naciśnięciu przycisku, a kod wygasa po 12 godzinach. Twój klucz API Nexusa zostaje w Menedżerze poświadczeń Windows na Twoim komputerze.
 
 ## Budowanie ze źródeł
 

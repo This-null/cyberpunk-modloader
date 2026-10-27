@@ -8,6 +8,7 @@ import { ipc, type AppInfo } from "../../lib/ipc";
 import { useSettings, type AutoTranslate, type Motion, type Theme } from "../../stores/settings";
 import { NexusSection } from "./NexusSection";
 import { NxmSection } from "./NxmSection";
+import { UpdateSection } from "./UpdateSection";
 
 const translates: { value: AutoTranslate; label: MessageKey }[] = [
   { value: "ask", label: "translate.optAsk" },
@@ -33,6 +34,8 @@ export function SettingsScreen() {
   const setMotion = useSettings((s) => s.setMotion);
   const translate = useSettings((s) => s.translate);
   const setTranslate = useSettings((s) => s.setTranslate);
+  const translateLang = useSettings((s) => s.translateLang);
+  const setTranslateLang = useSettings((s) => s.setTranslateLang);
   const gameDir = useSettings((s) => s.gameDir);
   const detected = useSettings((s) => s.detected);
   const invalid = useSettings((s) => s.invalid);
@@ -163,11 +166,28 @@ export function SettingsScreen() {
             </button>
           ))}
         </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted">{t("translate.into")}</span>
+          <select
+            value={translateLang}
+            onChange={(e) => setTranslateLang(e.target.value)}
+            className="w-72 rounded-md border border-line bg-surface-2 px-3 py-2"
+          >
+            <option value="app">{t("translate.sameAsApp")}</option>
+            {LOCALES.map((l) => (
+              <option key={l} value={l}>
+                {LOCALE_NAMES[l]}
+              </option>
+            ))}
+          </select>
+        </label>
         <p className="text-xs text-muted">{t("translate.hint")}</p>
+        <p className="text-xs text-muted">{t("translate.byGoogle")}</p>
       </section>
 
       <NexusSection />
       <NxmSection />
+      <UpdateSection />
 
     </div>
 

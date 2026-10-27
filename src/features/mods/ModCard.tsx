@@ -1,3 +1,4 @@
+import { useTranslated } from "../../lib/translate";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import clsx from "clsx";
@@ -39,6 +40,7 @@ export function ModCard({
   onToggle,
 }: Props) {
   const t = useT();
+  const description = useTranslated(mod.description);
   const [armed, setArmed] = useState(false);
   const image = useMods((s) => s.images[mod.name]);
   const loadImage = useMods((s) => s.loadImage);
@@ -102,7 +104,7 @@ export function ModCard({
             </span>
           ))}
         </div>
-        <p className="line-clamp-3 text-muted">{mod.description || t("mods.noDescription")}</p>
+        <p className="line-clamp-3 text-muted">{description || t("mods.noDescription")}</p>
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
           <button
             disabled={disabled}

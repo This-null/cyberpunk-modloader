@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.0.1 beta.
+An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.0.2 beta.
 
 It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop team.
 
@@ -15,6 +15,7 @@ It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop
 - Keeps several versions of one mod in a single card, so you can see which one is current.
 - Checks and installs NightCoop builds from the official website, and verifies each download with SHA-256.
 - Browses and searches Nexus Mods with filters, tags and endless scrolling. Free accounts can install through nxm links or from the downloads folder.
+- Shows what each Nexus mod requires, and shares your mod list as a profile (a code or a file) so others can install what they are missing.
 - Shows game, mod and launcher logs, and clears them when you ask.
 - Speaks English, Turkish, Russian, Spanish, Brazilian Portuguese, French, Polish and German.
 - Has system, dark and light themes.
@@ -27,7 +28,7 @@ It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop
 
 ## Privacy
 
-Nothing is sent anywhere automatically. Bug reports are only saved on your computer. The launcher talks to the NightCoop website and Nexus Mods to list and download mods. Release notes go to Google Translate only if you allow it in Settings. Your Nexus API key stays in Windows Credential Manager on your computer.
+Nothing is sent anywhere automatically. Bug reports are only saved on your computer. The launcher talks to the NightCoop website and Nexus Mods to list and download mods. It also reads the latest version number from GitHub to tell you about updates. You can turn this off in Settings. Release notes and mod descriptions go to Google Translate only if you allow it in Settings. Sharing a profile online sends only your mod list (sources and versions, no files) and a random ID made on your PC to our server, only when you press the button, and the code expires after 12 hours. Your Nexus API key stays in Windows Credential Manager on your computer.
 
 ## Build from source
 

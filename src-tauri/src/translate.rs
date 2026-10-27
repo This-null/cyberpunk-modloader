@@ -7,8 +7,9 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-const MAX_LINES: usize = 40;
-const MAX_CHARS: usize = 600;
+const MAX_LINES: usize = 60;
+const MAX_CHARS: usize = 1500;
+const BATCH_CHARS: usize = 4500;
 const ENDPOINT: &str = "https://translate.googleapis.com/translate_a/single";
 
 pub fn target_code(lang: &str) -> Option<&'static str> {
@@ -45,8 +46,9 @@ pub fn parse(raw: &str) -> Option<String> {
 
 fn ask(client: &Client, text: &str, code: &str) -> Result<String, AppError> {
     let reply = client
-        .get(ENDPOINT)
-        .query(&[("client", "gtx"), ("sl", "auto"), ("tl", code), ("dt", "t"), ("q", text)])
+        .post(ENDPOINT)
+        .query(&[("client", "gtx"), ("sl", "auto"), ("tl", code), ("dt", "t")])
+        .form(&[("q", text)])
         .send()
         .map_err(|e| AppError::Network(e.to_string()))?;
     if !reply.status().is_success() {
@@ -56,7 +58,43 @@ fn ask(client: &Client, text: &str, code: &str) -> Result<String, AppError> {
     parse(&raw).ok_or_else(|| AppError::Network("the translator sent an answer we could not read".into()))
 }
 
-pub fn translate_lines(cache_file: &Path, lines: &[String], lang: &str) -> Result<Vec<String>, AppError> {
+fn flat(line: &str) -> String {
+    line.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+pub fn translate_batch(lines: &[String], ask_once: &mut dyn FnMut(&str) -> Result<String, AppError>) -> Result<Vec<String>, AppError> {
+    let flats: Vec<String> = lines.iter().map(|l| flat(l)).collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut start = 0;
+    while start < flats.len() {
+        let mut end = start;
+        let mut chars = 0;
+        while end < flats.len() && (end == start || chars + flats[end].len() < BATCH_CHARS) {
+            chars += flats[end].len() + 1;
+            end += 1;
+        }
+        let group = &flats[start..end];
+        let joined = group.join("\n");
+        let answer = ask_once(&joined)?;
+        let parts: Vec<String> = answer.split('\n').map(|p| p.trim().to_string()).collect();
+        if parts.len() == group.len() && parts.iter().all(|p| !p.is_empty()) {
+            out.extend(parts);
+        } else {
+            for line in group {
+                out.push(ask_once(line)?);
+            }
+        }
+        start = end;
+    }
+    Ok(out)
+}
+
+pub fn translate_via(
+    cache_file: &Path,
+    lines: &[String],
+    lang: &str,
+    ask_once: &mut dyn FnMut(&str, &str) -> Result<String, AppError>,
+) -> Result<Vec<String>, AppError> {
     let code = target_code(lang).ok_or_else(|| AppError::BadLink("language".into()))?;
     if lines.len() > MAX_LINES || lines.iter().any(|l| l.chars().count() > MAX_CHARS) {
         return Err(AppError::BadLink("translation".into()));
@@ -65,37 +103,19 @@ pub fn translate_lines(cache_file: &Path, lines: &[String], lang: &str) -> Resul
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
-    let mut client: Option<Client> = None;
-    let mut out = Vec::with_capacity(lines.len());
-    let mut changed = false;
+    let mut missing: Vec<String> = Vec::new();
     for line in lines {
-        let key = cache_key(code, line);
-        if line.trim().is_empty() {
-            out.push(line.clone());
-        } else if let Some(hit) = cache.get(&key) {
-            out.push(hit.clone());
-        } else {
-            let c = match &client {
-                Some(c) => c,
-                None => client.insert(
-                    Client::builder()
-                        .user_agent(format!("{}/{}", crate::nexus::APP_NAME, env!("CARGO_PKG_VERSION")))
-                        .connect_timeout(Duration::from_secs(6))
-                        .timeout(Duration::from_secs(10))
-                        .https_only(true)
-                        .build()
-                        .map_err(|e| AppError::Network(e.to_string()))?,
-                ),
-            };
-            let text = ask(c, line, code)?;
-            cache.insert(key, text.clone());
-            changed = true;
-            out.push(text);
+        if !line.trim().is_empty() && !cache.contains_key(&cache_key(code, line)) && !missing.contains(line) {
+            missing.push(line.clone());
         }
     }
-    if changed {
-        if cache.len() > 2000 {
-            let drop: Vec<String> = cache.keys().take(cache.len() - 2000).cloned().collect();
+    if !missing.is_empty() {
+        let done = translate_batch(&missing, &mut |text| ask_once(text, code))?;
+        for (line, translated) in missing.iter().zip(done) {
+            cache.insert(cache_key(code, line), translated);
+        }
+        if cache.len() > 4000 {
+            let drop: Vec<String> = cache.keys().take(cache.len() - 4000).cloned().collect();
             for k in drop {
                 cache.remove(&k);
             }
@@ -107,7 +127,21 @@ pub fn translate_lines(cache_file: &Path, lines: &[String], lang: &str) -> Resul
             }
         }
     }
-    Ok(out)
+    Ok(lines
+        .iter()
+        .map(|l| if l.trim().is_empty() { l.clone() } else { cache.get(&cache_key(code, l)).cloned().unwrap_or_else(|| l.clone()) })
+        .collect())
+}
+
+pub fn translate_lines(cache_file: &Path, lines: &[String], lang: &str) -> Result<Vec<String>, AppError> {
+    let client = Client::builder()
+        .user_agent(format!("{}/{}", crate::nexus::APP_NAME, env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(6))
+        .timeout(Duration::from_secs(15))
+        .https_only(true)
+        .build()
+        .map_err(|e| AppError::Network(e.to_string()))?;
+    translate_via(cache_file, lines, lang, &mut |text, code| ask(&client, text, code))
 }
 
 #[cfg(test)]
@@ -143,12 +177,63 @@ mod tests {
     }
 
     #[test]
+    fn many_lines_go_out_in_one_request_and_come_back_in_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("t.json");
+        let mut calls = Vec::new();
+        let lines: Vec<String> = vec!["one".into(), "two\nwords".into(), "three".into()];
+        let out = translate_via(&file, &lines, "tr", &mut |text, code| {
+            calls.push(text.to_string());
+            assert_eq!(code, "tr");
+            Ok(text.split('\n').map(|l| l.to_uppercase()).collect::<Vec<_>>().join("\n"))
+        })
+        .unwrap();
+        assert_eq!(calls, vec!["one\ntwo words\nthree".to_string()]);
+        assert_eq!(out, vec!["ONE", "TWO WORDS", "THREE"]);
+        let mut again = 0;
+        let cached = translate_via(&file, &lines, "tr", &mut |_, _| {
+            again += 1;
+            Ok(String::new())
+        })
+        .unwrap();
+        assert_eq!((again, cached), (0, out));
+    }
+
+    #[test]
+    fn a_batch_that_comes_back_mangled_is_redone_line_by_line() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("t.json");
+        let mut n = 0;
+        let out = translate_via(&file, &["a".into(), "b".into()], "de", &mut |text, _| {
+            n += 1;
+            Ok(if text.contains('\n') { "all in one line".into() } else { format!("<{text}>") })
+        })
+        .unwrap();
+        assert_eq!(out, vec!["<a>", "<b>"]);
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn repeated_lines_are_asked_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("t.json");
+        let mut seen = Vec::new();
+        let out = translate_via(&file, &["same".into(), "same".into(), "  ".into()], "fr", &mut |text, _| {
+            seen.push(text.to_string());
+            Ok("pareil".into())
+        })
+        .unwrap();
+        assert_eq!(seen, vec!["same".to_string()]);
+        assert_eq!(out, vec!["pareil", "pareil", "  "]);
+    }
+
+    #[test]
     fn oversized_or_unknown_requests_are_refused_before_sending_anything() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("t.json");
-        let many: Vec<String> = (0..41).map(|i| format!("line {i}")).collect();
+        let many: Vec<String> = (0..61).map(|i| format!("line {i}")).collect();
         assert!(translate_lines(&file, &many, "tr").is_err());
-        assert!(translate_lines(&file, &["x".repeat(601)], "tr").is_err());
+        assert!(translate_lines(&file, &["x".repeat(1501)], "tr").is_err());
         assert!(translate_lines(&file, &["hi".into()], "klingon").is_err());
         assert!(!file.exists());
     }
