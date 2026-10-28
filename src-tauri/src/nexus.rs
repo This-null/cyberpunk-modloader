@@ -46,43 +46,91 @@ impl Api {
     }
 }
 
+fn lenient_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => s,
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        _ => String::new(),
+    })
+}
+
+fn lenient_u64<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Number(n) => n.as_u64().or_else(|| n.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64)).unwrap_or(0),
+        serde_json::Value::String(s) => s.trim().parse().unwrap_or(0),
+        serde_json::Value::Bool(b) => u64::from(b),
+        _ => 0,
+    })
+}
+
+fn lenient_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Bool(b) => b,
+        serde_json::Value::Number(n) => n.as_u64().is_some_and(|v| v != 0),
+        serde_json::Value::String(s) => matches!(s.to_ascii_lowercase().as_str(), "true" | "1" | "yes"),
+        _ => false,
+    })
+}
+
+fn lenient_option<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    })
+}
+
+fn lenient_tags<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Array(a) => a
+            .into_iter()
+            .filter_map(|v| match v {
+                serde_json::Value::String(s) => Some(s),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    })
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Validated {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_bool")]
     pub is_premium: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_bool")]
     pub is_supporter: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ModInfo {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub mod_id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_option")]
     pub name: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_option")]
     pub summary: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     pub version: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_option")]
     pub picture_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub updated_timestamp: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     pub status: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     pub author: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub category_id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_bool")]
     pub contains_adult_content: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub endorsement_count: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub mod_downloads: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_tags")]
     pub tags: Vec<String>,
 }
 
@@ -176,7 +224,10 @@ fn get_ex<T: DeserializeOwned>(api: &Api, key: &str, path: &str, forbidden_means
     if buf.len() as u64 > MAX_BODY {
         return Err(net("the answer is too large"));
     }
-    serde_json::from_slice(&buf).map_err(|_| net("Nexus sent an answer we could not read"))
+    serde_json::from_slice(&buf).map_err(|e| {
+        let endpoint = path.split('?').next().unwrap_or("");
+        net(format!("Nexus sent an answer we could not read ({endpoint}: {e})"))
+    })
 }
 
 pub fn validate(api: &Api, key: &str) -> Result<Validated, AppError> {
@@ -327,9 +378,9 @@ pub struct Category {
 
 #[derive(Deserialize)]
 struct RawCategory {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     category_id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     name: String,
     #[serde(default)]
     parent_category: serde_json::Value,
@@ -343,21 +394,21 @@ struct RawGame {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct FileInfo {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub file_id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     pub version: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     pub category_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_bool")]
     pub is_primary: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub size_kb: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_text")]
     pub file_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub uploaded_timestamp: u64,
 }
 
@@ -369,7 +420,7 @@ struct FilesReply {
 
 #[derive(Deserialize)]
 struct LinkReply {
-    #[serde(rename = "URI", default)]
+    #[serde(rename = "URI", default, deserialize_with = "lenient_text")]
     uri: String,
 }
 
@@ -1450,6 +1501,36 @@ b")));
         assert!(list[2].external && list[2].mod_id == 0);
         assert!(parse_requirements(&serde_json::json!({"errors":[{"message":"nope"}]})).is_err());
         assert!(parse_requirements(&serde_json::json!({"data":{"mod":null}})).is_err());
+    }
+
+
+    #[test]
+    fn answers_with_nulls_and_odd_number_types_are_still_read() {
+        let info: ModInfo = serde_json::from_str(
+            r#"{"mod_id":"107","name":null,"summary":null,"version":null,"picture_url":null,"updated_timestamp":1.7e9,"status":null,"author":null,"category_id":null,"contains_adult_content":null,"endorsement_count":"12","mod_downloads":3.0,"tags":null}"#,
+        )
+        .unwrap();
+        assert_eq!((info.mod_id, info.version.as_str(), info.endorsement_count, info.mod_downloads), (107, "", 12, 3));
+        assert_eq!(info.updated_timestamp, 1_700_000_000);
+        assert!(!info.contains_adult_content && info.name.is_none() && info.tags.is_empty());
+        let reply: FilesReply = serde_json::from_str(
+            r#"{"files":[{"file_id":5,"name":null,"version":null,"category_name":null,"is_primary":1,"size_kb":123.4,"file_name":"a b.zip","uploaded_timestamp":null},{"file_id":6,"category_name":"MAIN","is_primary":true,"size_kb":9}]}"#,
+        )
+        .unwrap();
+        assert_eq!(reply.files.len(), 2);
+        assert!(reply.files[0].is_primary && reply.files[0].size_kb == 123 && reply.files[0].category_name.is_empty());
+        let links: Vec<LinkReply> = serde_json::from_str(r#"[{"URI":null},{"URI":"https://cf-files.nexusmods.com/x","name":"CDN"}]"#).unwrap();
+        assert!(links[0].uri.is_empty() && links[1].uri.starts_with("https://"));
+        let who: Validated = serde_json::from_str(r#"{"name":null,"is_premium":"true","is_supporter":null}"#).unwrap();
+        assert!(who.is_premium && !who.is_supporter);
+    }
+
+    #[test]
+    fn an_unreadable_answer_names_the_endpoint_but_never_the_secret_parts() {
+        let api = serve(|_, _| (200, vec![], "this is not json".into()));
+        let err = get_ex::<ModInfo>(&api, KEY, "v1/games/cyberpunk2077/mods/1/files/2/download_link.json?key=SECRETKEY&expires=9", true).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("download_link.json") && !msg.contains("SECRETKEY") && !msg.contains(KEY), "{msg}");
     }
 
     #[test]

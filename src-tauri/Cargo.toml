@@ -1,6 +1,6 @@
 [package]
 name = "cp2077-mod-launcher"
-version = "0.0.2-beta"
+version = "0.0.3-beta"
 description = "CP2077 Mod Launcher"
 authors = ["Skydev"]
 edition = "2021"

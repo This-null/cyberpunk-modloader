@@ -70,7 +70,7 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
   list_mods: () => library,
   scan_external: () => [],
   mod_image: () => null,
-  app_info: () => ({ version: "0.0.2-beta", data_dir: "C:\\Users\\you\\AppData\\Roaming\\com.skydev.cp2077modlauncher" }),
+  app_info: () => ({ version: "0.0.3-beta", data_dir: "C:\\Users\\you\\AppData\\Roaming\\com.skydev.cp2077modlauncher" }),
   nc_fetch: () => ({ updated: "", latest: "0.1.1-beta.2", offline: false, releases: [] }),
   nc_detect: () => null,
   nexus_status: () => ({ connected: true, user: { name: "Ayse", is_premium: true, is_supporter: false } }),

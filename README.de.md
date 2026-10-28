@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Ein inoffizieller Mod-Manager aus der Community für Cyberpunk 2077 unter Windows. Version 0.0.2 Beta.
+Ein inoffizieller Mod-Manager aus der Community für Cyberpunk 2077 unter Windows. Version 0.0.3 Beta.
 
 Er stammt nicht von CD PROJEKT RED, Nexus Mods oder dem NightCoop-Team und ist nicht mit ihnen verbunden.
 
