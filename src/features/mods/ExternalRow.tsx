@@ -52,7 +52,7 @@ export function ExternalRow({ mod, disabled, onImport, version, selected, onSele
           {t(`kind.${mod.kind}` as MessageKey)} · {t("mods.files", { count: mod.files.length })}
         </div>
       </div>
-      <button disabled={disabled} onClick={onImport} className="rounded border border-line px-4 py-1.5 hover:bg-surface-2">
+      <button disabled={disabled} onClick={onImport} className="btn">
         {t("action.import")}
       </button>
     </li>

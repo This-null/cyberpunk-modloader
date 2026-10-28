@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Um gerenciador de mods não oficial, feito pela comunidade, para Cyberpunk 2077 no Windows. Versão 0.0.3 beta.
+Um gerenciador de mods não oficial, feito pela comunidade, para Cyberpunk 2077 no Windows. Versão 0.0.4 beta.
 
 Ele não é feito por nem tem ligação com a CD PROJEKT RED, a Nexus Mods ou a equipe do NightCoop.
 
@@ -19,6 +19,7 @@ Ele não é feito por nem tem ligação com a CD PROJEKT RED, a Nexus Mods ou a 
 - Mostra os logs do jogo, dos mods e do launcher, e apaga quando você pedir.
 - Fala inglês, turco, russo, espanhol, português do Brasil, francês, polonês e alemão.
 - Tem temas do sistema, escuro e claro.
+- Instala mods FOMOD com a janela de opções, verifica CET, RED4ext, ArchiveXL e outros frameworks e atualiza mods com Premium. Dúvidas ou ideias? Entre no nosso [Discord](https://discord.gg/EaNcFyCEqP).
 
 ## Instalação
 

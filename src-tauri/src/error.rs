@@ -7,6 +7,12 @@ pub enum AppError {
     UnsafePath(String),
     #[error("cannot tell where this file belongs: {0}")]
     Unmappable(String),
+    #[error("this archive holds no mod files: {0}")]
+    NoFiles(String),
+    #[error("this mod uses an installer with options (FOMOD)")]
+    Fomod,
+    #[error("these files belong to an installed mod: {0}")]
+    Owned(String),
     #[error("close Cyberpunk 2077 before changing mods")]
     GameRunning,
     #[error("Cyberpunk 2077 folder not set")]
@@ -54,6 +60,9 @@ impl AppError {
         match self {
             AppError::UnsafePath(_) => "unsafe_path",
             AppError::Unmappable(_) => "unmappable",
+            AppError::NoFiles(_) => "no_files",
+            AppError::Fomod => "fomod",
+            AppError::Owned(_) => "owned",
             AppError::GameRunning => "game_running",
             AppError::GameNotFound => "game_not_found",
             AppError::Io(_) => "io",

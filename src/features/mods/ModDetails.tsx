@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { Logo } from "../../brand/Logo";
+import { CoverPlaceholder } from "../../brand/CoverPlaceholder";
 import { useT } from "../../i18n";
 import { ipc } from "../../lib/ipc";
 import { errorMessageKey } from "../../stores/errors";
@@ -53,13 +53,13 @@ export function ModDetails() {
           {image ? (
             <img src={image} alt="" className="h-full w-full object-cover" draggable={false} />
           ) : (
-            <Logo size={72} className="text-line" />
+            <CoverPlaceholder name={mod.name} size="lg" />
           )}
         </div>
         <h2 className="text-lg font-semibold">{mod.name}</h2>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={chooseImage} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+          <button onClick={chooseImage} className="btn">
             {t("action.changeImage")}
           </button>
           {picked && <span className="truncate text-xs text-muted">{picked.split(/[\\/]/).pop()}</span>}
@@ -93,11 +93,11 @@ export function ModDetails() {
               <span>{t("nexus.linked", { id: mod.nexus_id })}</span>
               <button
                 onClick={() => void ipc.openUrl(`https://www.nexusmods.com/cyberpunk2077/mods/${mod.nexus_id}`)}
-                className="rounded border border-line px-3 py-1.5 hover:bg-surface-2"
+                className="btn"
               >
                 {t("nexus.openOnNexus")}
               </button>
-              <button onClick={() => void unlink(mod.name)} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+              <button onClick={() => void unlink(mod.name)} className="btn">
                 {t("nexus.unlink")}
               </button>
             </div>
@@ -120,7 +120,7 @@ export function ModDetails() {
                   setLinkError(code);
                   if (!code) setTarget("");
                 }}
-                className="rounded border border-line px-4 py-2 hover:bg-surface-2"
+                className="btn"
               >
                 {t("nexus.link")}
               </button>
@@ -145,17 +145,17 @@ export function ModDetails() {
         <p className="text-xs text-muted">{t("export.notice")}</p>
 
         <div className="flex flex-wrap justify-end gap-2">
-          <button disabled={busy} onClick={exportMod} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+          <button disabled={busy} onClick={exportMod} className="btn">
             {t("action.export")}
           </button>
           <button
             disabled={busy || !dirty}
             onClick={() => saveInfo(mod.name, description, version, picked)}
-            className="rounded bg-accent px-4 py-2 font-medium text-accent-ink"
+            className="btn btn-primary"
           >
             {t("action.save")}
           </button>
-          <button onClick={() => openDetail(null)} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+          <button onClick={() => openDetail(null)} className="btn">
             {t("action.close")}
           </button>
         </div>

@@ -92,13 +92,13 @@ export function ErrorDialog() {
         <p className="text-muted">{t("error.hint")}</p>
         {status && <p className="text-ok">{status}</p>}
         <div className="flex flex-wrap justify-end gap-2">
-          <button onClick={copy} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+          <button onClick={copy} className="btn">
             {t("error.copy")}
           </button>
-          <button onClick={save} className="rounded bg-accent px-4 py-2 font-medium text-accent-ink">
+          <button onClick={save} className="btn btn-primary">
             {t("error.save")}
           </button>
-          <button onClick={dismiss} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+          <button onClick={dismiss} className="btn">
             {t("action.close")}
           </button>
         </div>

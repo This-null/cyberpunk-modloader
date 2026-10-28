@@ -5,9 +5,12 @@ import { useLocale, useT, type LocaleChoice, type MessageKey } from "../../i18n"
 import { LOCALES, LOCALE_NAMES } from "../../i18n/locale";
 import { Logo } from "../../brand/Logo";
 import { ipc, type AppInfo } from "../../lib/ipc";
-import { useSettings, type AutoTranslate, type Motion, type Theme } from "../../stores/settings";
+import { useSettings, type AutoTranslate, type Motion } from "../../stores/settings";
 import { NexusSection } from "./NexusSection";
 import { NxmSection } from "./NxmSection";
+import { ModUpdatesSection } from "./ModUpdatesSection";
+import { Segmented } from "./Segmented";
+import { ThemePicker } from "./ThemePicker";
 import { UpdateSection } from "./UpdateSection";
 
 const translates: { value: AutoTranslate; label: MessageKey }[] = [
@@ -22,12 +25,6 @@ const motions: { value: Motion; label: MessageKey }[] = [
   { value: "reduced", label: "motion.reduced" },
 ];
 
-const themes: { value: Theme; label: MessageKey }[] = [
-  { value: "system", label: "theme.system" },
-  { value: "dark", label: "theme.dark" },
-  { value: "light", label: "theme.light" },
-];
-
 export function SettingsScreen() {
   const t = useT();
   const motion = useSettings((s) => s.motion);
@@ -40,8 +37,6 @@ export function SettingsScreen() {
   const detected = useSettings((s) => s.detected);
   const invalid = useSettings((s) => s.invalid);
   const chooseGame = useSettings((s) => s.chooseGame);
-  const theme = useSettings((s) => s.theme);
-  const setTheme = useSettings((s) => s.setTheme);
   const choice = useLocale((s) => s.choice);
   const setChoice = useLocale((s) => s.setChoice);
 
@@ -70,7 +65,7 @@ export function SettingsScreen() {
           <code className="min-w-0 flex-1 truncate rounded border border-line bg-surface px-3 py-2">
             {gameDir ?? t("settings.notSet")}
           </code>
-          <button onClick={browse} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+          <button onClick={browse} className="btn">
             {t("settings.browse")}
           </button>
         </div>
@@ -112,60 +107,18 @@ export function SettingsScreen() {
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
         <h2 className="text-base font-semibold">{t("settings.theme")}</h2>
-        <div className="flex w-fit overflow-hidden rounded border border-line">
-          {themes.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setTheme(value)}
-              aria-pressed={theme === value}
-              className={clsx(
-                "px-4 py-2",
-                theme === value ? "bg-accent font-medium text-accent-ink" : "bg-surface hover:bg-surface-2",
-              )}
-            >
-              {t(label)}
-            </button>
-          ))}
-        </div>
+        <ThemePicker />
       </section>
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
         <h2 className="text-base font-semibold">{t("settings.motion")}</h2>
-        <div className="flex w-fit overflow-hidden rounded border border-line">
-          {motions.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setMotion(value)}
-              aria-pressed={motion === value}
-              className={clsx(
-                "px-4 py-2",
-                motion === value ? "bg-accent font-medium text-accent-ink" : "bg-surface hover:bg-surface-2",
-              )}
-            >
-              {t(label)}
-            </button>
-          ))}
-        </div>
+        <Segmented value={motion} options={motions.map((o) => ({ value: o.value, label: t(o.label) }))} onChange={setMotion} />
         <p className="text-xs text-muted">{t("settings.motionHint")}</p>
       </section>
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
         <h2 className="text-base font-semibold">{t("translate.title")}</h2>
-        <div className="flex w-fit overflow-hidden rounded border border-line">
-          {translates.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setTranslate(value)}
-              aria-pressed={translate === value}
-              className={clsx(
-                "px-4 py-2",
-                translate === value ? "bg-accent font-medium text-accent-ink" : "bg-surface hover:bg-surface-2",
-              )}
-            >
-              {t(label)}
-            </button>
-          ))}
-        </div>
+        <Segmented value={translate} options={translates.map((o) => ({ value: o.value, label: t(o.label) }))} onChange={setTranslate} />
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted">{t("translate.into")}</span>
           <select
@@ -187,6 +140,7 @@ export function SettingsScreen() {
 
       <NexusSection />
       <NxmSection />
+      <ModUpdatesSection />
       <UpdateSection />
 
     </div>

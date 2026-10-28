@@ -27,13 +27,13 @@ export function ConflictDialog() {
           ))}
         </ul>
         <div className="flex justify-end gap-2">
-          <button onClick={cancel} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+          <button onClick={cancel} className="btn">
             {t("action.cancel")}
           </button>
           <button
             disabled={busy}
             onClick={() => (pending.retry ? pending.retry() : enable(pending.name, true))}
-            className="rounded bg-danger px-4 py-2 font-medium text-white"
+            className="btn btn-danger-solid"
           >
             {t("action.overwrite")}
           </button>

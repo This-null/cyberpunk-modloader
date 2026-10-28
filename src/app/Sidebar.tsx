@@ -1,4 +1,4 @@
-import { FileText, Globe, Package, Settings } from "lucide-react";
+import { FileText, Globe, Package, Settings, User } from "lucide-react";
 import clsx from "clsx";
 import { useT, type MessageKey } from "../i18n";
 import { ipc } from "../lib/ipc";
@@ -7,16 +7,26 @@ import { useMods } from "../stores/mods";
 import { useNexus } from "../stores/nexus";
 import { useNightcoop } from "../stores/nightcoop";
 
-export type Page = "mods" | "nexus" | "logs" | "settings";
+export type Page = "mods" | "nexus" | "profile" | "logs" | "settings";
 
 const REPO = "https://github.com/This-null/cyberpunk-modloader";
+const DISCORD = "https://discord.gg/EaNcFyCEqP";
 
 const items: { page: Page; label: MessageKey; icon: typeof Package }[] = [
   { page: "mods", label: "nav.mods", icon: Package },
   { page: "nexus", label: "nav.nexus", icon: Globe },
+  { page: "profile", label: "nav.profile", icon: User },
   { page: "logs", label: "nav.logs", icon: FileText },
   { page: "settings", label: "nav.settings", icon: Settings },
 ];
+
+function DiscordMark({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M20.32 4.37A19.8 19.8 0 0 0 15.4 2.85a.07.07 0 0 0-.08.04c-.21.38-.45.87-.61 1.26a18.3 18.3 0 0 0-5.42 0 12.6 12.6 0 0 0-.62-1.26.08.08 0 0 0-.08-.04c-1.7.3-3.35.81-4.92 1.52a.07.07 0 0 0-.03.03C.53 9.05-.32 13.6.1 18.09c0 .02.01.04.03.05a19.9 19.9 0 0 0 6 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.22-2a.08.08 0 0 0-.04-.1 13 13 0 0 1-1.87-.9.08.08 0 0 1 0-.13l.37-.29a.07.07 0 0 1 .08-.01c3.93 1.8 8.18 1.8 12.07 0a.07.07 0 0 1 .08.01l.37.29a.08.08 0 0 1 0 .13c-.6.35-1.22.65-1.87.9a.08.08 0 0 0-.04.1c.36.7.77 1.37 1.22 2a.08.08 0 0 0 .08.03 19.8 19.8 0 0 0 6.01-3.03.08.08 0 0 0 .03-.05c.5-5.18-.84-9.68-3.55-13.67a.06.06 0 0 0-.03-.03ZM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42s.96-2.42 2.16-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42Zm7.97 0c-1.18 0-2.16-1.09-2.16-2.42s.96-2.42 2.16-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42Z" />
+    </svg>
+  );
+}
 
 function GithubMark({ size = 18 }: { size?: number }) {
   return (
@@ -31,8 +41,8 @@ export function Sidebar({ page, onChange }: { page: Page; onChange: (p: Page) =>
   const mods = useMods((s) => s.mods);
   const data = useNightcoop((s) => s.data);
   const detected = useNightcoop((s) => s.detected);
-  const nexusUpdate = useNexus((s) => Object.values(s.items).some((i) => i.update));
-  const hasUpdate = updateAvailable(data, mods, detected) || nexusUpdate;
+  const nexusUpdates = useNexus((s) => Object.values(s.items).filter((i) => i.update).length);
+  const updateCount = nexusUpdates + (updateAvailable(data, mods, detected) ? 1 : 0);
 
   return (
     <nav className="flex w-56 shrink-0 flex-col border-r border-line bg-surface px-3 pb-3 pt-4">
@@ -47,26 +57,26 @@ export function Sidebar({ page, onChange }: { page: Page; onChange: (p: Page) =>
               aria-current={active ? "page" : undefined}
               style={{ "--i": i } as React.CSSProperties}
               className={clsx(
-                "anim-rise group relative flex h-10 items-center gap-3 rounded-lg px-3 text-left",
-                active ? "font-medium text-ink" : "text-muted hover:bg-surface-2 hover:text-ink",
+                "anim-rise group flex h-11 items-center gap-3 rounded-xl px-2 text-left transition-colors",
+                active ? "bg-accent/15 font-medium text-ink ring-1 ring-accent/35" : "text-muted hover:bg-surface-2 hover:text-ink",
               )}
             >
-              {active && (
-                <span className="absolute inset-0 rounded-lg border border-accent/25 bg-gradient-to-r from-accent/15 to-transparent" />
-              )}
               <span
                 className={clsx(
-                  "absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r-full transition-colors",
-                  active ? "bg-accent" : "bg-transparent",
+                  "grid h-7 w-7 shrink-0 place-items-center rounded-lg transition-colors",
+                  active ? "bg-accent text-accent-ink" : "bg-surface-2 text-muted group-hover:text-ink",
                 )}
-              />
-              <Icon
-                size={18}
-                className={clsx("relative transition-colors", active ? "text-accent" : "text-muted group-hover:text-ink")}
-              />
-              <span className="relative">{t(label)}</span>
-              {p === "mods" && hasUpdate && (
-                <span className="relative ml-auto h-2 w-2 rounded-full bg-accent" title={t("nightcoop.updateAvailable")} />
+              >
+                <Icon size={16} />
+              </span>
+              <span>{t(label)}</span>
+              {p === "mods" && updateCount > 0 && (
+                <span
+                  className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-accent-ink"
+                  title={t("nightcoop.updateAvailable")}
+                >
+                  {updateCount}
+                </span>
               )}
             </button>
           );
@@ -86,7 +96,18 @@ export function Sidebar({ page, onChange }: { page: Page; onChange: (p: Page) =>
             <span className="truncate text-xs text-muted">{t("nav.openSource")}</span>
           </span>
         </button>
-        <span className="px-1 text-center text-[11px] text-muted">{t("nav.unofficial")}</span>
+        <button
+          onClick={() => void ipc.openUrl(DISCORD)}
+          className="group flex items-center gap-3 rounded-xl border border-line bg-surface-2 p-3 text-left hover:border-accent/50"
+        >
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-bg text-ink group-hover:text-accent">
+            <DiscordMark />
+          </span>
+          <span className="flex min-w-0 flex-col">
+            <span className="font-medium">Discord</span>
+            <span className="truncate text-xs text-muted">{t("nav.community")}</span>
+          </span>
+        </button>
       </div>
     </nav>
   );

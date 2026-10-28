@@ -7,8 +7,8 @@ import { openNexusPage, useProfile } from "../../stores/profile";
 import { useNexus } from "../../stores/nexus";
 import { useErrors } from "../../stores/errors";
 
-const btn = "rounded border border-line px-3 py-1.5 hover:bg-surface-2 disabled:opacity-60";
-const primary = "rounded bg-accent px-3 py-1.5 font-medium text-accent-ink disabled:opacity-60";
+const btn = "btn disabled:opacity-60";
+const primary = "btn btn-primary disabled:opacity-60";
 
 export function ProfileDialog({ names }: { names: string[] }) {
   const t = useT();
@@ -136,7 +136,7 @@ export function ProfileDialog({ names }: { names: string[] }) {
                       {it.installed ? (
                         <span className="shrink-0 text-xs text-ok">{t("profile.have")}</span>
                       ) : it.source === "nexus" && !premium ? (
-                        <button className="shrink-0 rounded border border-line px-2 py-0.5 text-xs hover:bg-surface" onClick={() => openNexusPage(it.mod_id)}>
+                        <button className="btn shrink-0 btn-sm" onClick={() => openNexusPage(it.mod_id)}>
                           {t("nexusPage.open")}
                         </button>
                       ) : (

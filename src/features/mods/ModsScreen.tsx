@@ -22,7 +22,12 @@ import { ConflictDialog } from "./ConflictDialog";
 import { ExternalRow } from "./ExternalRow";
 import { groupMods, relation } from "../../lib/groups";
 import { ModCard } from "./ModCard";
+import { PresetsDialog } from "./PresetsDialog";
+import { FrameworkBanner } from "./FrameworkBanner";
 import { ProfileDialog } from "./ProfileDialog";
+import { useMyPresets } from "../../stores/presets";
+import { updatable, useModUpdates } from "../../stores/modUpdates";
+import { useNexus } from "../../stores/nexus";
 import { useProfile } from "../../stores/profile";
 import { VersionRow } from "./VersionRow";
 import { ModDetails } from "./ModDetails";
@@ -53,6 +58,7 @@ export function ModsScreen() {
   const clearNotice = useMods((s) => s.clearNotice);
   const busy = useMods((s) => s.busy);
   const skipped = useMods((s) => s.skipped);
+  const ignored = useMods((s) => s.ignored);
   const clearSkipped = useMods((s) => s.clearSkipped);
   const install = useMods((s) => s.install);
   const enable = useMods((s) => s.enable);
@@ -165,6 +171,10 @@ export function ModsScreen() {
     else await exportAll(dest);
   }
 
+  const nexusItems = useNexus((s) => s.items);
+  const nexusPremium = useNexus((s) => s.status?.user?.is_premium ?? false);
+  const updating = useModUpdates((s) => s.running);
+  const outdated = updatable(nexusItems).length;
   const locked = busy || running || !gameDir;
   const selectedNames = namesWith(selected, "m:");
   const selectedExternal = namesWith(selected, "e:");
@@ -172,32 +182,50 @@ export function ModsScreen() {
   const toEnable = selectedMods.filter((m) => !m.enabled).map((m) => m.name);
   const toDisable = selectedMods.filter((m) => m.enabled).map((m) => m.name);
   const nothingShown = shownMods.length === 0 && shownExternal.length === 0 && allKeys.length > 0;
-  const btn = "rounded border border-line px-3 py-1.5 hover:bg-surface-2";
+  const btn = "btn";
 
   return (
     <div className="relative flex h-full flex-col gap-4">
+      <FrameworkBanner />
+      <PresetsDialog />
       <ProfileDialog names={selectedNames.length > 0 ? selectedNames : mods.map((m) => m.name)} />
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">{t("mods.title")}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {nexusPremium && outdated > 0 && (
+            <button
+              disabled={busy || running || updating !== null}
+              onClick={() => void useModUpdates.getState().updateAll()}
+              className="btn btn-primary disabled:opacity-60"
+            >
+              {t("modupd.all", { count: outdated })}
+            </button>
+          )}
+          <button
+            disabled={busy || !gameDir}
+            onClick={() => void useMyPresets.getState().show()}
+            className="btn"
+          >
+            {t("presets.button")}
+          </button>
           <button
             disabled={busy || mods.length === 0}
             onClick={() => void useProfile.getState().open("share", selectedNames.length > 0 ? selectedNames : mods.map((m) => m.name))}
-            className="flex items-center gap-2 rounded border border-line px-4 py-2 hover:bg-surface-2"
+            className="btn"
           >
             {t("profile.share")}
           </button>
           <button
             disabled={busy || !gameDir}
             onClick={() => void useProfile.getState().open("import", [])}
-            className="flex items-center gap-2 rounded border border-line px-4 py-2 hover:bg-surface-2"
+            className="btn"
           >
             {t("profile.import")}
           </button>
           <button
             disabled={busy || mods.length === 0}
             onClick={() => void pack()}
-            className="flex items-center gap-2 rounded border border-line px-4 py-2 hover:bg-surface-2"
+            className="btn"
           >
             <Upload size={16} />
             {t("action.exportAll")}
@@ -205,7 +233,7 @@ export function ModsScreen() {
           <button
             disabled={busy || !gameDir}
             onClick={pick}
-            className="flex items-center gap-2 rounded bg-accent px-4 py-2 font-medium text-accent-ink"
+            className="btn btn-primary"
           >
             <Download size={16} />
             {t("mods.install")}
@@ -230,9 +258,7 @@ export function ModsScreen() {
               {t("mods.clearSelection")}
             </button>
           </div>
-          {selected.length === 0 ? (
-            <p className="text-xs text-muted">{t("mods.selectHint")}</p>
-          ) : (
+          {selected.length === 0 ? null : (
             <div className="anim-rise flex flex-wrap items-center gap-2 rounded-lg border border-accent bg-surface px-3 py-2">
               <span className="mr-2 font-medium">{t("mods.selected", { count: selected.length })}</span>
               <button className={btn} disabled={locked || toEnable.length === 0} onClick={() => void bulkEnable(toEnable)}>
@@ -255,7 +281,7 @@ export function ModsScreen() {
                       setConfirming(false);
                       void bulkUninstall(selectedNames);
                     }}
-                    className="rounded bg-danger px-3 py-1.5 font-medium text-white"
+                    className="btn btn-danger-solid"
                   >
                     {t("mods.confirmUninstall", { count: selectedNames.length })}
                   </button>
@@ -281,6 +307,16 @@ export function ModsScreen() {
         <p className="anim-rise flex items-center justify-between gap-3 rounded border border-line bg-surface p-3 text-ok">
           <span className="break-all">{t("export.saved", { path: notice })}</span>
           <button onClick={clearNotice} className="shrink-0 text-muted hover:text-ink">
+            {t("action.close")}
+          </button>
+        </p>
+      )}
+      {ignored.length > 0 && (
+        <p className="anim-rise flex items-center justify-between gap-3 rounded border border-line bg-surface p-3">
+          <span className="min-w-0 break-words">
+            {t("mods.ignored", { count: ignored.length, names: ignored.slice(0, 5).join(", ") + (ignored.length > 5 ? "..." : "") })}
+          </span>
+          <button onClick={() => useMods.getState().clearIgnored()} className="shrink-0 text-muted hover:text-ink">
             {t("action.close")}
           </button>
         </p>

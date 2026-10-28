@@ -132,6 +132,64 @@ export interface FoundDownload {
   modified: number;
 }
 
+export interface FomodPlugin {
+  name: string;
+  description: string;
+}
+
+export interface FomodGroup {
+  name: string;
+  kind: string;
+  order: string;
+  plugins: FomodPlugin[];
+}
+
+export interface FomodStep {
+  name: string;
+  order: string;
+  groups: FomodGroup[];
+}
+
+export interface FomodView {
+  name: string;
+  order: string;
+  steps: FomodStep[];
+}
+
+export interface FomodPending {
+  name: string;
+  view: FomodView;
+}
+
+export interface FomodEvaluation {
+  visible: boolean[];
+  types: string[][][];
+}
+
+export type FomodSelection = number[][][];
+
+export interface FrameworkState {
+  id: string;
+  present: boolean;
+  version: string | null;
+}
+
+export interface FrameworkReport {
+  frameworks: FrameworkState[];
+  old_loader: boolean;
+}
+
+export interface NexusFileInfo {
+  file_id: number;
+  name: string;
+  version: string;
+  category_name: string;
+  is_primary: boolean;
+  size_kb: number;
+  file_name: string;
+  uploaded_timestamp: number;
+}
+
 export interface NexusRequirement {
   mod_id: number;
   name: string;
@@ -159,6 +217,25 @@ export interface ProfileView {
   name: string;
   items: ProfilePlanItem[];
   encoded: string;
+}
+
+export interface Preset {
+  name: string;
+  mods: string[];
+}
+
+export interface ApplyReport {
+  enabled: string[];
+  disabled: string[];
+  failed: [string, string][];
+  missing: string[];
+}
+
+export interface SharedEntry {
+  code: string;
+  expires: number;
+  name: string;
+  count: number;
 }
 
 export interface NexusUser {
@@ -216,7 +293,7 @@ export const ipc = {
   scanExternal: () => invoke<ExternalMod[]>("scan_external"),
   importMod: (name: string) => invoke<ModRecord>("import_mod", { name }),
   installMod: (zipPath: string, name: string) =>
-    invoke<{ added: ModRecord[]; skipped: string[] }>("install_mod", { zipPath, name }),
+    invoke<{ added: ModRecord[]; skipped: string[]; ignored?: string[] }>("install_mod", { zipPath, name }),
   setModInfo: (name: string, description: string, version: string, imagePath: string | null) =>
     invoke<ModRecord>("set_mod_info", { name, description, version, imagePath }),
   modImage: (name: string) => invoke<string | null>("mod_image", { name }),
@@ -246,6 +323,25 @@ export const ipc = {
   profileShare: (encoded: string) => invoke<{ code: string; expires: number }>("profile_share", { encoded }),
   profileSave: (path: string, text: string) => invoke<void>("profile_save", { path, text }),
   profileRead: (path: string) => invoke<string>("profile_read", { path }),
+  presetsList: () => invoke<Preset[]>("presets_list"),
+  presetSave: (name: string, mods: string[]) => invoke<Preset[]>("preset_save", { name, mods }),
+  presetRename: (old: string, name: string) => invoke<Preset[]>("preset_rename", { old, new: name }),
+  presetDelete: (name: string) => invoke<Preset[]>("preset_delete", { name }),
+  presetApply: (name: string) => invoke<ApplyReport>("preset_apply", { name }),
+  fomodPending: () => invoke<FomodPending>("fomod_pending"),
+  fomodEval: (selection: FomodSelection) => invoke<FomodEvaluation>("fomod_eval", { selection }),
+  fomodCancel: () => invoke<void>("fomod_cancel"),
+  fomodInstall: (selection: FomodSelection) =>
+    invoke<{ added: ModRecord[]; skipped: string[]; ignored?: string[] }>("fomod_install", { selection }),
+  frameworkPlan: (id: string) => invoke<string[]>("framework_plan", { id }),
+  frameworkRemove: (id: string) => invoke<number>("framework_remove", { id }),
+  frameworkStatus: () => invoke<FrameworkReport>("framework_status"),
+  nexusFiles: (modId: number) => invoke<NexusFileInfo[]>("nexus_files", { modId }),
+  nexusInstallFile: (modId: number, fileId: number) => invoke<string[]>("nexus_install_file", { modId, fileId }),
+  nexusFillCovers: () => invoke<number>("nexus_fill_covers"),
+  sharesList: () => invoke<SharedEntry[]>("shares_list"),
+  getInstallId: () => invoke<string>("get_install_id"),
+  resetInstallId: () => invoke<string>("reset_install_id"),
   nexusInstall: (modId: number) => invoke<string[]>("nexus_install", { modId }),
   nexusProbe: () => invoke<number>("nexus_probe"),
   ncFetch: (lang: string) => invoke<NcData>("nc_fetch", { lang }),
@@ -270,9 +366,10 @@ export const ipc = {
       translate: string | null;
       updates: string | null;
       translate_lang: string | null;
+      mod_updates: string | null;
     }>("get_prefs"),
-  setPrefs: (locale: string, theme: string, motion: string, translate: string, updates: string, translateLang: string) =>
-    invoke<void>("set_prefs", { locale, theme, motion, translate, updates, translateLang }),
+  setPrefs: (locale: string, theme: string, motion: string, translate: string, updates: string, translateLang: string, modUpdates: string) =>
+    invoke<void>("set_prefs", { locale, theme, motion, translate, updates, translateLang, modUpdates }),
   logsOpen: (id: string) => invoke<void>("logs_open", { id }),
   logsReveal: (id: string) => invoke<void>("logs_reveal", { id }),
   logsClear: () => invoke<{ removed: number; freed: number }>("logs_clear"),

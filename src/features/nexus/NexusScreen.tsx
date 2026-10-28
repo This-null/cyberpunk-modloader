@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import clsx from "clsx";
-import { ChevronRight, Download } from "lucide-react";
-import { Logo } from "../../brand/Logo";
+import { ChevronRight, Download, X } from "lucide-react";
+import { CoverPlaceholder } from "../../brand/CoverPlaceholder";
 import { activeLocale, useLocale, useT, type MessageKey } from "../../i18n";
 import { categoryName, categoryOptions, compactNumber, SORTS, type Sort } from "../../lib/browse";
 import { ipc, type NexusCategory, type NexusMod } from "../../lib/ipc";
@@ -25,26 +25,28 @@ function Card({
   categories,
   index,
   installed,
+  empty,
   canInstall,
   busy,
   progress,
+  selected,
   onInstall,
-  onTag,
+  onOpen,
   locale,
-  requirements,
   step,
 }: {
   mod: NexusMod;
   categories: NexusCategory[];
   index: number;
   installed: boolean;
+  empty: boolean;
   canInstall: boolean;
   busy: boolean;
   progress: number | null;
+  selected: boolean;
   onInstall: () => void;
-  onTag: (tag: string) => void;
+  onOpen: () => void;
   locale: string;
-  requirements: ReactNode;
   step: { done: number; total: number } | null;
 }) {
   const t = useT();
@@ -54,10 +56,14 @@ function Card({
 
   return (
     <li
-      className="anim-rise flex flex-col overflow-hidden rounded-lg border border-line bg-surface"
+      onClick={onOpen}
+      className={clsx(
+        "anim-rise flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface hover:border-accent/60",
+        selected ? "border-accent" : "border-line",
+      )}
       style={{ "--i": Math.min(index, 8) } as CSSProperties}
     >
-      <div className="relative h-36 shrink-0 overflow-hidden bg-surface-2">
+      <div className="relative h-28 shrink-0 overflow-hidden bg-surface-2">
         {mod.picture_url && !broken ? (
           <img
             src={mod.picture_url}
@@ -68,9 +74,7 @@ function Card({
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (
-          <div className="grid h-full place-items-center">
-            <Logo size={44} className="text-line" />
-          </div>
+          <CoverPlaceholder name={mod.name ?? String(mod.mod_id)} />
         )}
         {mod.contains_adult_content && (
           <span className="absolute left-2 top-2 rounded bg-danger px-1.5 py-0.5 text-xs font-medium text-white">
@@ -78,69 +82,162 @@ function Card({
           </span>
         )}
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      <div className="flex flex-1 flex-col gap-1.5 p-3">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-2 font-semibold">{mod.name ?? `#${mod.mod_id}`}</h3>
+          <h3 className="line-clamp-1 font-semibold">{mod.name ?? `#${mod.mod_id}`}</h3>
           {mod.version && (
             <span className="shrink-0 rounded border border-line px-1.5 py-0.5 text-xs text-muted">
               {t("nexusPage.version", { version: mod.version })}
             </span>
           )}
         </div>
-        <p className="text-xs text-muted">
+        <p className="line-clamp-1 text-xs text-muted">
           {[mod.author ? t("nexusPage.by", { author: mod.author }) : "", category].filter(Boolean).join(" · ")}
         </p>
-        <p className="line-clamp-3 text-muted">{summary}</p>
-        {mod.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {mod.tags.slice(0, 4).map((tag) => (
-              <button
-                key={tag}
-                onClick={() => onTag(tag)}
-                className="rounded-full border border-line px-2 py-0.5 text-xs text-muted hover:border-accent hover:text-ink"
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-        )}
-        <p className="mt-auto pt-1 text-xs text-muted">
-          {t("nexusPage.downloads", { count: compactNumber(mod.mod_downloads, locale) })} ·{" "}
-          {t("nexusPage.endorsements", { count: compactNumber(mod.endorsement_count, locale) })}
-        </p>
-        <div className="flex flex-wrap gap-2 pt-1">
+        <p className="line-clamp-2 text-muted">{summary}</p>
+        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+          <span className="text-xs text-muted">
+            {t("nexusPage.downloads", { count: compactNumber(mod.mod_downloads, locale) })}
+          </span>
           {canInstall && (
             <button
-              disabled={busy || installed}
-              onClick={onInstall}
+              disabled={busy || installed || empty}
+              onClick={(e) => {
+                e.stopPropagation();
+                onInstall();
+              }}
               className={clsx(
-                "flex items-center gap-2 rounded px-3 py-1.5",
-                installed ? "border border-line text-muted" : "bg-accent font-medium text-accent-ink",
+                "flex items-center gap-1.5 whitespace-nowrap rounded px-3 py-1",
+                installed ? "border border-line text-muted" : "bg-accent font-medium text-accent-ink disabled:opacity-60",
               )}
             >
               {!installed && <Download size={14} />}
               {installed
                 ? t("nexusPage.installed")
-                : progress !== null
+                : empty
+                  ? t("nexusPage.nothingToInstall")
+                  : progress !== null
                   ? step
-                    ? t("nexusPage.step", { done: Math.min(step.done + 1, step.total), total: step.total, percent: progress })
+                    ? `${Math.min(step.done + 1, step.total)}/${step.total} · ${progress}%`
                     : t("nexusPage.installingPercent", { percent: progress })
                   : t("nexusPage.install")}
             </button>
           )}
-          <button
-            onClick={() => {
-              useIncoming.getState().startWatch();
-              void ipc.openUrl(`https://www.nexusmods.com/cyberpunk2077/mods/${mod.mod_id}`);
-            }}
-            className="rounded border border-line px-3 py-1.5 hover:bg-surface-2"
-          >
-            {t("nexusPage.open")}
-          </button>
         </div>
-        {requirements}
       </div>
     </li>
+  );
+}
+
+function DetailPanel({
+  mod,
+  categories,
+  installed,
+  empty,
+  premium,
+  busy,
+  progress,
+  step,
+  onInstall,
+  onClose,
+  locale,
+}: {
+  mod: NexusMod;
+  categories: NexusCategory[];
+  installed: boolean;
+  empty: boolean;
+  premium: boolean;
+  busy: boolean;
+  progress: number | null;
+  step: { done: number; total: number } | null;
+  onInstall: () => void;
+  onClose: () => void;
+  locale: string;
+}) {
+  const t = useT();
+  const [broken, setBroken] = useState(false);
+  const summary = useTranslated(mod.summary);
+  const category = categoryName(categories, mod.category_id);
+
+  useEffect(() => setBroken(false), [mod.mod_id]);
+
+  return (
+    <aside
+      key={mod.mod_id}
+      className="anim-rise fixed bottom-0 right-0 top-10 z-30 flex w-[26rem] max-w-full flex-col gap-3 overflow-auto border-l border-line bg-surface p-4 shadow-2xl"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="text-lg font-semibold">{mod.name ?? `#${mod.mod_id}`}</h2>
+        <button onClick={onClose} aria-label={t("action.close")} className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink">
+          <X size={18} />
+        </button>
+      </div>
+      <div className="relative h-44 shrink-0 overflow-hidden rounded-md bg-surface-2">
+        {mod.picture_url && !broken ? (
+          <img src={mod.picture_url} alt="" draggable={false} onError={() => setBroken(true)} className="h-full w-full object-cover" />
+        ) : (
+          <CoverPlaceholder name={mod.name ?? String(mod.mod_id)} size="lg" />
+        )}
+      </div>
+      <p className="text-xs text-muted">
+        {[
+          mod.version ? t("nexusPage.version", { version: mod.version }) : "",
+          mod.author ? t("nexusPage.by", { author: mod.author }) : "",
+          category,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      <p className="text-xs text-muted">
+        {t("nexusPage.downloads", { count: compactNumber(mod.mod_downloads, locale) })} ·{" "}
+        {t("nexusPage.endorsements", { count: compactNumber(mod.endorsement_count, locale) })}
+      </p>
+      <p className="whitespace-pre-line text-muted">{summary}</p>
+      {mod.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {mod.tags.map((tag) => (
+            <span key={tag} className="rounded-full border border-line px-2 py-0.5 text-xs text-muted">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {premium && (
+          <button
+            disabled={busy || installed || empty}
+            onClick={onInstall}
+            className={clsx(
+              "flex items-center gap-2 whitespace-nowrap rounded px-4 py-1.5",
+              installed ? "border border-line text-muted" : "bg-accent font-medium text-accent-ink disabled:opacity-60",
+            )}
+          >
+            {!installed && <Download size={14} />}
+            {installed
+              ? t("nexusPage.installed")
+              : empty
+                ? t("nexusPage.nothingToInstall")
+                : progress !== null
+                ? step
+                  ? t("nexusPage.step", { done: Math.min(step.done + 1, step.total), total: step.total, percent: progress })
+                  : t("nexusPage.installingPercent", { percent: progress })
+                : t("nexusPage.install")}
+          </button>
+        )}
+        <button
+          onClick={() => {
+            useIncoming.getState().startWatch();
+            void ipc.openUrl(`https://www.nexusmods.com/cyberpunk2077/mods/${mod.mod_id}`);
+          }}
+          className="btn"
+        >
+          {t("nexusPage.open")}
+        </button>
+      </div>
+      {empty && <p className="rounded-md border border-line bg-surface-2 p-3 text-xs text-muted">{t("err.no_files")}</p>}
+      <Requirements mod={mod} premium={premium} />
+      <Versions mod={mod} premium={premium} />
+    </aside>
   );
 }
 
@@ -157,8 +254,8 @@ function TranslateStrip() {
     return (
       <div className="anim-rise flex flex-wrap items-center gap-3 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs">
         <span className="min-w-0 flex-1 text-ink">{t("translate.askMods")}</span>
-        <button onClick={() => setMode("on")} className="rounded bg-accent px-3 py-1 font-medium text-accent-ink">{t("translate.yes")}</button>
-        <button onClick={() => setMode("off")} className="rounded border border-line px-3 py-1 hover:bg-surface-2">{t("translate.no")}</button>
+        <button onClick={() => setMode("on")} className="btn btn-sm btn-primary">{t("translate.yes")}</button>
+        <button onClick={() => setMode("off")} className="btn btn-sm">{t("translate.no")}</button>
       </div>
     );
   }
@@ -169,6 +266,59 @@ function TranslateStrip() {
       <button onClick={() => setShowOriginal(!showOriginal)} className="text-accent hover:underline">
         {showOriginal ? t("nightcoop.showTranslation") : t("nightcoop.showOriginal")}
       </button>
+    </div>
+  );
+}
+
+function Versions({ mod, premium }: { mod: NexusMod; premium: boolean }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const entry = useNexusBrowse((s) => s.files[mod.mod_id]);
+  const installing = useNexusBrowse((s) => s.installing);
+  const loadFiles = useNexusBrowse((s) => s.loadFiles);
+  const installFile = useNexusBrowse((s) => s.installFile);
+
+  function toggle() {
+    setOpen((v) => !v);
+    if (!open) void loadFiles(mod.mod_id);
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-2">
+      <button onClick={toggle} aria-expanded={open} className="flex items-center gap-2 text-left text-muted hover:text-ink">
+        <ChevronRight size={14} className={clsx("transition-transform", open && "rotate-90")} />
+        {t("nexusPage.versions")}
+      </button>
+      {open && (
+        <div className="anim-rise flex flex-col gap-2">
+          {entry?.loading && <span className="text-xs text-muted">{t("nexusPage.loading")}</span>}
+          {entry?.failed && <span className="text-xs text-danger">{t("nexusPage.versionsFailed")}</span>}
+          {entry && !entry.loading && !entry.failed && entry.items.length === 0 && (
+            <span className="text-xs text-muted">{t("nexusPage.noVersions")}</span>
+          )}
+          {entry?.items.map((f) => (
+            <div key={f.file_id} className="flex items-center justify-between gap-2 rounded bg-surface-2 px-2 py-1.5">
+              <span className="min-w-0">
+                <span className="block truncate">
+                  {f.name || f.file_name} {f.version && <span className="font-medium">{f.version}</span>}
+                </span>
+                <span className="text-xs text-muted">
+                  {f.category_name.toUpperCase() === "OLD_VERSION" ? t("nexusPage.oldVersion") : f.category_name.toLowerCase()} · {(f.size_kb / 1024).toFixed(1)} MB
+                </span>
+              </span>
+              {premium && (
+                <button
+                  disabled={installing !== null}
+                  onClick={() => void installFile(mod.mod_id, f.file_id)}
+                  className="btn shrink-0 btn-sm disabled:opacity-60"
+                >
+                  {t("nexusPage.installThis")}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -219,7 +369,7 @@ function Requirements({ mod, premium }: { mod: NexusMod; premium: boolean }) {
                       useIncoming.getState().startWatch();
                       void ipc.openUrl(`https://www.nexusmods.com/cyberpunk2077/mods/${r.mod_id}`);
                     }}
-                    className="shrink-0 rounded border border-line px-2 py-0.5 text-xs hover:bg-surface"
+                    className="btn shrink-0 btn-sm"
                   >
                     {t("nexusPage.open")}
                   </button>
@@ -231,7 +381,7 @@ function Requirements({ mod, premium }: { mod: NexusMod; premium: boolean }) {
             <button
               disabled={installing !== null}
               onClick={() => void installMissing(mod.mod_id)}
-              className="self-start rounded bg-accent px-3 py-1.5 font-medium text-accent-ink disabled:opacity-60"
+              className="self-start btn btn-primary disabled:opacity-60"
             >
               {t("nexusPage.installMissing", { count: missing.length })}
             </button>
@@ -252,12 +402,16 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
   const total = useNexusBrowse((s) => s.total);
   const categories = useNexusBrowse((s) => s.categories);
   const installedIds = useNexusBrowse((s) => s.installed);
+  const emptyIds = useNexusBrowse((s) => s.empty);
   const loading = useNexusBrowse((s) => s.loading);
   const loadingMore = useNexusBrowse((s) => s.loadingMore);
   const failed = useNexusBrowse((s) => s.failed);
   const installing = useNexusBrowse((s) => s.installing);
   const progress = useNexusBrowse((s) => s.progress);
   const chain = useNexusBrowse((s) => s.chain);
+  const chainRoot = useNexusBrowse((s) => s.chainRoot);
+  const detailId = useNexusBrowse((s) => s.detail);
+  const openDetail = useNexusBrowse((s) => s.openDetail);
   const premiumNeeded = useNexusBrowse((s) => s.premiumNeeded);
   const sort = useNexusBrowse((s) => s.sort);
   const query = useNexusBrowse((s) => s.query);
@@ -302,10 +456,21 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
   const options = useMemo(() => categoryOptions(categories), [categories]);
   const sorts: Sort[] = query.trim() === "" ? SORTS : ["relevance", ...SORTS];
   const percentDone = progress ? percent(progress.done, progress.total) : 0;
+  const detailMod = items.find((m) => m.mod_id === detailId) ?? null;
+  const progressFor = (id: number) =>
+    installing !== null && (chainRoot !== null ? chainRoot === id : installing === id) ? percentDone : null;
+  const stepFor = (id: number) => (installing !== null && chainRoot === id ? chain : null);
+
+  useEffect(() => {
+    if (detailId === null) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && openDetail(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [detailId, openDetail]);
   const chip = "rounded border px-3 py-1.5";
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className={clsx("flex h-full flex-col gap-4", connected && detailMod && "mr-[25rem]")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-col">
           <h1 className="text-xl font-semibold">{t("nexusPage.title")}</h1>
@@ -333,7 +498,7 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
         <div className="grid flex-1 place-items-center rounded-lg border border-dashed border-line p-8 text-center">
           <div className="flex max-w-md flex-col items-center gap-4">
             <p className="text-muted">{t("nexusPage.connectFirst")}</p>
-            <button onClick={onSettings} className="rounded bg-accent px-4 py-2 font-medium text-accent-ink">
+            <button onClick={onSettings} className="btn btn-primary">
               {t("nexusPage.goSettings")}
             </button>
           </div>
@@ -389,14 +554,14 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
             {failed && (
               <div className="flex flex-wrap items-center gap-3">
                 <p className="text-danger">{t("nexusPage.failed")}</p>
-                <button onClick={() => void reload()} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+                <button onClick={() => void reload()} className="btn">
                   {t("nightcoop.retry")}
                 </button>
               </div>
             )}
             {!loading && !failed && items.length === 0 && <p className="text-muted">{t("nexusPage.noResults")}</p>}
             {items.length > 0 && (
-              <ul className={clsx("grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3", loading && "opacity-60 transition-opacity")}>
+              <ul className={clsx("grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3", loading && "opacity-60 transition-opacity")}>
                 {items.map((m, i) => (
                   <Card
                     key={m.mod_id}
@@ -404,14 +569,15 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
                     categories={categories}
                     index={i % 24}
                     installed={installedIds.includes(m.mod_id)}
+                    empty={emptyIds.includes(m.mod_id)}
                     canInstall={premium}
                     busy={installing !== null}
-                    progress={installing !== null && (installing === m.mod_id || chain !== null) ? percentDone : null}
-                    step={installing !== null && chain !== null ? chain : null}
+                    progress={progressFor(m.mod_id)}
+                    step={stepFor(m.mod_id)}
+                    selected={detailId === m.mod_id}
                     onInstall={() => void installWithRequirements(m.mod_id)}
-                    onTag={setTag}
+                    onOpen={() => openDetail(m.mod_id)}
                     locale={locale}
-                    requirements={<Requirements mod={m} premium={premium} />}
                   />
                 ))}
               </ul>
@@ -422,6 +588,21 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
             </div>
           </div>
         </>
+      )}
+      {connected && detailMod && (
+        <DetailPanel
+          mod={detailMod}
+          categories={categories}
+          installed={installedIds.includes(detailMod.mod_id)}
+          empty={emptyIds.includes(detailMod.mod_id)}
+          premium={premium}
+          busy={installing !== null}
+          progress={progressFor(detailMod.mod_id)}
+          step={stepFor(detailMod.mod_id)}
+          onInstall={() => void installWithRequirements(detailMod.mod_id)}
+          onClose={() => openDetail(null)}
+          locale={locale}
+        />
       )}
     </div>
   );

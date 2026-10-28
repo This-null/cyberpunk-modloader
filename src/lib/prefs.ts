@@ -3,7 +3,7 @@ import { LOCALES } from "../i18n/locale";
 import { ipc } from "./ipc";
 import { useSettings, type AutoTranslate, type Motion, type Theme } from "../stores/settings";
 
-const THEMES: Theme[] = ["system", "dark", "light"];
+const THEMES: Theme[] = ["system", "dark", "light", "midnight", "ocean", "mocha", "aurora", "sunset", "neon", "emerald"];
 const MOTIONS: Motion[] = ["system", "full", "reduced"];
 
 const TRANSLATES: AutoTranslate[] = ["ask", "on", "off"];
@@ -18,6 +18,10 @@ export function isUpdates(v: unknown): v is "on" | "off" {
 
 export function isTranslateLang(v: unknown): v is string {
   return v === "app" || (typeof v === "string" && v !== "auto" && isLocaleChoice(v));
+}
+
+export function isModUpdates(v: unknown): v is "manual" | "auto" {
+  return v === "manual" || v === "auto";
 }
 
 export function isMotion(v: unknown): v is Motion {
@@ -40,13 +44,14 @@ export async function startPrefsSync(): Promise<void> {
   if (isAutoTranslate(saved?.translate)) useSettings.setState({ translate: saved.translate });
   if (isUpdates(saved?.updates)) useSettings.setState({ updates: saved.updates });
   if (isTranslateLang(saved?.translate_lang)) useSettings.setState({ translateLang: saved.translate_lang });
+  if (isModUpdates(saved?.mod_updates)) useSettings.setState({ modUpdates: saved.mod_updates });
   const push = () => {
-    const { theme, motion, translate, updates, translateLang } = useSettings.getState();
-    void ipc.setPrefs(useLocale.getState().choice, theme, motion, translate, updates, translateLang).catch(() => {});
+    const { theme, motion, translate, updates, translateLang, modUpdates } = useSettings.getState();
+    void ipc.setPrefs(useLocale.getState().choice, theme, motion, translate, updates, translateLang, modUpdates).catch(() => {});
   };
   useLocale.subscribe(push);
   useSettings.subscribe((s, prev) => {
-    if (s.theme !== prev.theme || s.motion !== prev.motion || s.translate !== prev.translate || s.updates !== prev.updates || s.translateLang !== prev.translateLang) push();
+    if (s.theme !== prev.theme || s.motion !== prev.motion || s.translate !== prev.translate || s.updates !== prev.updates || s.translateLang !== prev.translateLang || s.modUpdates !== prev.modUpdates) push();
   });
   push();
 }

@@ -155,15 +155,15 @@ export function LogsScreen() {
           (asking ? (
             <div className="anim-pop flex items-center gap-2">
               <span className="text-muted">{t("logs.clearAsk", { count: files.length, size: formatBytes(total) })}</span>
-              <button onClick={() => void wipe()} className="rounded bg-danger px-3 py-1.5 font-medium text-white hover:opacity-90">
+              <button onClick={() => void wipe()} className="btn btn-danger-solid hover:opacity-90">
                 {t("logs.clearYes")}
               </button>
-              <button onClick={() => setAsking(false)} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+              <button onClick={() => setAsking(false)} className="btn">
                 {t("action.cancel")}
               </button>
             </div>
           ) : (
-            <button onClick={() => { setFreed(null); setAsking(true); }} className="flex items-center gap-2 rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+            <button onClick={() => { setFreed(null); setAsking(true); }} className="btn">
               <Trash2 size={15} />
               {t("logs.clear")}
             </button>
@@ -179,7 +179,7 @@ export function LogsScreen() {
                 {summary.source} · {summary.name} · {when(summary.modified)}
               </span>
             </div>
-            <button onClick={() => pick(summary.id)} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+            <button onClick={() => pick(summary.id)} className="btn">
               {t("logs.openLog")}
             </button>
           </div>
@@ -222,16 +222,16 @@ export function LogsScreen() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button title={t("logs.refresh")} aria-label={t("logs.refresh")} onClick={() => void refresh()} className="rounded border border-line p-2 hover:bg-surface-2">
+                    <button title={t("logs.refresh")} aria-label={t("logs.refresh")} onClick={() => void refresh()} className="btn btn-icon">
                       <RefreshCw size={15} />
                     </button>
-                    <button title={t("logs.copy")} aria-label={t("logs.copy")} onClick={() => void copy()} className="rounded border border-line p-2 hover:bg-surface-2">
+                    <button title={t("logs.copy")} aria-label={t("logs.copy")} onClick={() => void copy()} className="btn btn-icon">
                       <Copy size={15} />
                     </button>
-                    <button title={t("logs.openFile")} aria-label={t("logs.openFile")} onClick={() => void ipc.logsOpen(current.id)} className="rounded border border-line p-2 hover:bg-surface-2">
+                    <button title={t("logs.openFile")} aria-label={t("logs.openFile")} onClick={() => void ipc.logsOpen(current.id)} className="btn btn-icon">
                       <ExternalLink size={15} />
                     </button>
-                    <button title={t("logs.reveal")} aria-label={t("logs.reveal")} onClick={() => void ipc.logsReveal(current.id)} className="rounded border border-line p-2 hover:bg-surface-2">
+                    <button title={t("logs.reveal")} aria-label={t("logs.reveal")} onClick={() => void ipc.logsReveal(current.id)} className="btn btn-icon">
                       <FolderOpen size={15} />
                     </button>
                     {copied && <span className="text-xs text-ok">{t("logs.copied")}</span>}

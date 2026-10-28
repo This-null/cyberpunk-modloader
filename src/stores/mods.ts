@@ -21,6 +21,8 @@ interface ModsState {
   detail: string | null;
   notice: string | null;
   skipped: string[];
+  ignored: string[];
+  clearIgnored: () => void;
   clearSkipped: () => void;
   selected: string[];
   setSelected: (keys: string[]) => void;
@@ -78,6 +80,8 @@ export const useMods = create<ModsState>((set, get) => {
     detail: null,
     notice: null,
     skipped: [],
+    ignored: [],
+    clearIgnored: () => set({ ignored: [] }),
     clearSkipped: () => set({ skipped: [] }),
     selected: [],
 
@@ -214,8 +218,18 @@ export const useMods = create<ModsState>((set, get) => {
 
     refresh: async () => {
       try {
-        const [mods, external] = await Promise.all([ipc.listMods(), ipc.scanExternal()]);
-        set({ mods, external });
+        let again = 0;
+        for (;;) {
+          try {
+            const [mods, external] = await Promise.all([ipc.listMods(), ipc.scanExternal()]);
+            set({ mods, external });
+            return;
+          } catch (e) {
+            if (toAppError(e).code !== "game_not_found" || again >= 2) throw e;
+            again += 1;
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        }
       } catch (e) {
         if (toAppError(e).code === "game_not_found") {
           set({ mods: [], external: [] });
@@ -228,6 +242,7 @@ export const useMods = create<ModsState>((set, get) => {
     install: (paths) =>
       run(async () => {
         const skipped: string[] = [];
+        const ignored: string[] = [];
         try {
           for (const path of paths) {
             const name = modNameFromPath(
@@ -236,10 +251,11 @@ export const useMods = create<ModsState>((set, get) => {
             );
             const done = await ipc.installMod(path, name);
             skipped.push(...done.skipped);
+            ignored.push(...(done.ignored ?? []));
             await get().refresh();
           }
         } finally {
-          set({ skipped });
+          set({ skipped, ignored });
         }
       }),
 

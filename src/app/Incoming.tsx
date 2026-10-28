@@ -54,13 +54,13 @@ export function IncomingDialog() {
           </div>
         )}
         <div className="flex justify-end gap-2">
-          <button disabled={installing} onClick={cancel} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+          <button disabled={installing} onClick={cancel} className="btn">
             {t("action.cancel")}
           </button>
           <button
             disabled={installing || expired || !connected || busy}
             onClick={() => void confirm()}
-            className="rounded bg-accent px-4 py-2 font-medium text-accent-ink disabled:opacity-60"
+            className="btn btn-primary disabled:opacity-60"
           >
             {t("incoming.install")}
           </button>
@@ -88,7 +88,7 @@ export function DownloadsBanner() {
       <button
         disabled={busy}
         onClick={() => void install(first.path)}
-        className="rounded bg-accent px-3 py-1 font-medium text-accent-ink disabled:opacity-60"
+        className="btn btn-sm btn-primary disabled:opacity-60"
       >
         {t("incoming.install")}
       </button>
@@ -120,11 +120,11 @@ export function UpdateBanner() {
           <button
             disabled={busy}
             onClick={() => void install()}
-            className="rounded bg-accent px-3 py-1 font-medium text-accent-ink disabled:opacity-60"
+            className="btn btn-sm btn-primary disabled:opacity-60"
           >
             {t("update.now")}
           </button>
-          <button onClick={hide} className="rounded border border-line px-3 py-1 hover:bg-surface-2">
+          <button onClick={hide} className="btn btn-sm">
             {t("update.later")}
           </button>
         </>

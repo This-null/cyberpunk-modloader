@@ -32,7 +32,7 @@ export function NexusSection() {
           {status.user?.is_supporter && (
             <span className="rounded border border-line px-1.5 py-0.5 text-xs text-muted">{t("nexus.supporter")}</span>
           )}
-          <button onClick={() => void disconnect()} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+          <button onClick={() => void disconnect()} className="btn">
             {t("nexus.disconnect")}
           </button>
           {NEXUS_DEV && (
@@ -46,7 +46,7 @@ export function NexusSection() {
                     useErrors.getState().report(e);
                   }
                 }}
-                className="rounded border border-line px-4 py-2 hover:bg-surface-2"
+                className="btn"
               >
                 {t("nexus.probe")}
               </button>
@@ -67,7 +67,7 @@ export function NexusSection() {
               <div>
                 <button
                   onClick={() => void ipc.openUrl("https://www.nexusmods.com/users/myaccount?tab=api")}
-                  className="rounded border border-line px-4 py-2 hover:bg-surface-2"
+                  className="btn"
                 >
                   {t("nexus.openPage")}
                 </button>
@@ -89,7 +89,7 @@ export function NexusSection() {
                 <button
                   disabled={!key.trim() || connecting}
                   onClick={() => void submit()}
-                  className="rounded bg-accent px-4 py-2 font-medium text-accent-ink"
+                  className="btn btn-primary"
                 >
                   {connecting ? t("nexus.connecting") : t("nexus.connect")}
                 </button>

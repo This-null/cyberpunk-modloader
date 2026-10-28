@@ -28,14 +28,14 @@ export function NxmSection() {
         {state === "ours" ? (
           <>
             <span className="text-ok">{t("nxm.on")}</span>
-            <button onClick={() => void toggle(false)} className="rounded border border-line px-4 py-2 hover:bg-surface-2">
+            <button onClick={() => void toggle(false)} className="btn">
               {t("nxm.disable")}
             </button>
           </>
         ) : (
           <>
             {state === "other" && <span className="text-muted">{t("nxm.other")}</span>}
-            <button onClick={() => void toggle(true)} className="rounded bg-accent px-4 py-2 font-medium text-accent-ink">
+            <button onClick={() => void toggle(true)} className="btn btn-primary">
               {state === "other" ? t("nxm.replace") : t("nxm.enable")}
             </button>
           </>

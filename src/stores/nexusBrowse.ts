@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
-import { ipc, toAppError, type NexusCategory, type NexusMod, type NexusRequirement } from "../lib/ipc";
+import { ipc, toAppError, type NexusCategory, type NexusFileInfo, type NexusMod, type NexusRequirement } from "../lib/ipc";
 import { categoryNames, SEARCH_PAGE, type Sort } from "../lib/browse";
 import { useErrors } from "./errors";
 import { useMods } from "./mods";
@@ -11,16 +11,29 @@ export interface RequirementsEntry {
   items: NexusRequirement[];
 }
 
+export interface FilesEntry {
+  loading: boolean;
+  failed: boolean;
+  items: NexusFileInfo[];
+}
+
 interface BrowseState {
   reqs: Record<number, RequirementsEntry>;
+  files: Record<number, FilesEntry>;
+  detail: number | null;
+  openDetail: (modId: number | null) => void;
+  loadFiles: (modId: number) => Promise<void>;
+  installFile: (modId: number, fileId: number) => Promise<void>;
   loadReqs: (modId: number) => Promise<void>;
   installMissing: (modId: number) => Promise<void>;
   installWithRequirements: (modId: number) => Promise<void>;
   chain: { done: number; total: number } | null;
+  chainRoot: number | null;
   items: NexusMod[];
   total: number;
   categories: NexusCategory[];
   installed: number[];
+  empty: number[];
   loading: boolean;
   loadingMore: boolean;
   failed: string | null;
@@ -35,7 +48,7 @@ interface BrowseState {
   start: () => Promise<void>;
   reload: () => Promise<void>;
   loadMore: () => Promise<void>;
-  install: (modId: number) => Promise<void>;
+  install: (modId: number, fileId?: number) => Promise<void>;
   setSort: (sort: Sort) => void;
   setQuery: (query: string) => void;
   setCategory: (category: number) => void;
@@ -70,10 +83,15 @@ export const useNexusBrowse = create<BrowseState>((set, get) => {
   return {
     reqs: {},
     chain: null,
+    files: {},
+    detail: null,
+    openDetail: (detail) => set({ detail }),
+    chainRoot: null,
     items: [],
     total: 0,
     categories: [],
     installed: [],
+    empty: [],
     loading: false,
     loadingMore: false,
     failed: null,
@@ -129,23 +147,43 @@ export const useNexusBrowse = create<BrowseState>((set, get) => {
       }
     },
 
-    install: async (modId) => {
+    install: async (modId, fileId) => {
       set({ installing: modId, progress: null, premiumNeeded: false });
       useMods.getState().begin();
       let stop = () => {};
       try {
         stop = await listen<{ done: number; total: number }>("nexus-progress", (e) => set({ progress: e.payload }));
-        await ipc.nexusInstall(modId);
+        if (fileId === undefined) await ipc.nexusInstall(modId);
+        else await ipc.nexusInstallFile(modId, fileId);
         await useMods.getState().refresh();
         set((s) => ({ installed: [...new Set([...s.installed, modId])] }));
       } catch (e) {
         const a = toAppError(e);
         if (a.code === "nexus_premium") set({ premiumNeeded: true });
-        else useErrors.getState().report(e);
+        else {
+          if (a.code === "no_files") set((s) => ({ empty: [...new Set([...s.empty, modId])] }));
+          useErrors.getState().report(e);
+        }
       } finally {
         stop();
         useMods.getState().end();
         set({ installing: null, progress: null });
+      }
+    },
+
+    installFile: async (modId, fileId) => {
+      await get().install(modId, fileId);
+    },
+
+    loadFiles: async (modId) => {
+      const have = get().files[modId];
+      if (have && (have.loading || have.items.length > 0)) return;
+      set((st) => ({ files: { ...st.files, [modId]: { loading: true, failed: false, items: [] } } }));
+      try {
+        const items = (await ipc.nexusFiles(modId)).filter((f) => f.file_id > 0).sort((a, b) => b.uploaded_timestamp - a.uploaded_timestamp);
+        set((st) => ({ files: { ...st.files, [modId]: { loading: false, failed: false, items } } }));
+      } catch {
+        set((st) => ({ files: { ...st.files, [modId]: { loading: false, failed: true, items: [] } } }));
       }
     },
 
@@ -186,13 +224,13 @@ export const useNexusBrowse = create<BrowseState>((set, get) => {
         frontier = next;
       }
       const order = [...depth.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
-      set({ chain: order.length > 1 ? { done: 0, total: order.length } : null });
+      set({ chainRoot: modId, chain: order.length > 1 ? { done: 0, total: order.length } : null });
       for (const [i, id] of order.entries()) {
         await get().install(id);
         if (get().premiumNeeded || !get().installed.includes(id)) break;
         set({ chain: order.length > 1 ? { done: i + 1, total: order.length } : null });
       }
-      set({ chain: null });
+      set({ chain: null, chainRoot: null });
     },
 
     setSort: (sort) => {

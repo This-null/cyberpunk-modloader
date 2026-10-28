@@ -1,14 +1,16 @@
 import { useTranslated } from "../../lib/translate";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import clsx from "clsx";
-import { Logo } from "../../brand/Logo";
+import { CoverPlaceholder } from "../../brand/CoverPlaceholder";
 import { useT, type MessageKey } from "../../i18n";
 import type { ModRecord } from "../../lib/ipc";
 import { kindsOf } from "../../lib/kinds";
 import { ipc } from "../../lib/ipc";
 import { useMods } from "../../stores/mods";
 import { useNexus } from "../../stores/nexus";
+import { useModUpdates } from "../../stores/modUpdates";
+import { useDependents } from "./useDependents";
 
 interface Props {
   mod: ModRecord;
@@ -42,10 +44,14 @@ export function ModCard({
   const t = useT();
   const description = useTranslated(mod.description);
   const [armed, setArmed] = useState(false);
+  const neededBy = useDependents(mod, armed);
   const image = useMods((s) => s.images[mod.name]);
   const loadImage = useMods((s) => s.loadImage);
   const openDetail = useMods((s) => s.openDetail);
   const item = useNexus((s) => s.items[mod.name]);
+  const premium = useNexus((s) => s.status?.user?.is_premium ?? false);
+  const running = useModUpdates((s) => s.running);
+  const updateOne = useModUpdates((s) => s.updateOne);
 
   useEffect(() => {
     void loadImage(mod.name);
@@ -53,7 +59,11 @@ export function ModCard({
 
   return (
     <li
-      className={clsx("anim-rise rounded-lg border bg-surface p-4", selected ? "border-accent" : "border-line")}
+      className={clsx(
+        "anim-rise rounded-lg border border-l-[3px] bg-surface p-4 transition-opacity",
+        selected ? "border-accent" : "border-line",
+        mod.enabled ? "border-l-ok" : "border-l-line opacity-90 hover:opacity-100",
+      )}
       style={{ "--i": Math.min(index, 8) } as CSSProperties}
       onClickCapture={(e) => {
         if (e.ctrlKey || e.metaKey) {
@@ -75,28 +85,31 @@ export function ModCard({
               onSelect({ ctrl: true, shift: e.shiftKey });
             }}
             aria-label={t("mods.select", { name: mod.name })}
-            className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--accent)]"
+            className="shrink-0"
           />
-          <span className={clsx("h-2.5 w-2.5 shrink-0 rounded-full", mod.enabled ? "bg-ok" : "bg-muted")} aria-hidden />
           <button onClick={() => openDetail(mod.name)} className="truncate text-left text-base font-semibold hover:underline">
             {mod.name}
           </button>
           {mod.version && (
             <span className="shrink-0 rounded border border-line px-1.5 py-0.5 text-xs text-muted">{mod.version}</span>
           )}
-          {item?.update && item.latest && (
-            <button
-              onClick={() => void ipc.openUrl(item.page_url)}
-              title={t("nexus.openOnNexus")}
-              className="shrink-0 rounded bg-accent px-1.5 py-0.5 text-xs font-medium text-accent-ink"
-            >
-              {t("nexus.updateTo", { version: item.latest })}
-            </button>
-          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
-          <span>{mod.enabled ? t("mods.enabled") : t("mods.disabled")}</span>
-          <span aria-hidden>·</span>
+          <span
+            className={clsx(
+              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-medium",
+              mod.enabled ? "bg-ok/15 text-ok" : "bg-surface-2 text-muted",
+            )}
+          >
+            <span
+              className={clsx(
+                "h-1.5 w-1.5 rounded-full bg-current",
+                mod.enabled && "shadow-[0_0_8px_1px_color-mix(in_srgb,var(--ok)_70%,transparent)]",
+              )}
+              aria-hidden
+            />
+            {mod.enabled ? t("mods.enabled") : t("mods.disabled")}
+          </span>
           <span>{t("mods.files", { count: mod.files.length })}</span>
           {kindsOf(mod.files).map((k) => (
             <span key={k} className="rounded bg-surface-2 px-1.5 py-0.5">
@@ -106,17 +119,21 @@ export function ModCard({
         </div>
         <p className="line-clamp-3 text-muted">{description || t("mods.noDescription")}</p>
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
-          <button
-            disabled={disabled}
-            onClick={mod.enabled ? onDisable : onEnable}
-            className={clsx(
-              "rounded px-4 py-1.5",
-              mod.enabled ? "border border-line hover:bg-surface-2" : "bg-accent font-medium text-accent-ink",
-            )}
-          >
+          <button disabled={disabled} onClick={mod.enabled ? onDisable : onEnable} className={clsx("btn", mod.enabled ? "btn-danger" : "btn-ok")}>
             {mod.enabled ? t("action.disable") : t("action.enable")}
           </button>
-          <button onClick={() => openDetail(mod.name)} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+          {item?.update && item.latest && (
+            <button
+              disabled={premium && (disabled || running !== null)}
+              onClick={() => (premium ? void updateOne(mod.name) : void ipc.openUrl(item.page_url))}
+              title={premium ? t("modupd.install") : t("nexus.openOnNexus")}
+              className="btn btn-primary"
+            >
+              <RefreshCw size={14} className={running === mod.name ? "animate-spin" : undefined} />
+              {running === mod.name ? t("modupd.updating") : t("modupd.update", { version: item.latest })}
+            </button>
+          )}
+          <button onClick={() => openDetail(mod.name)} className="btn">
             {t("action.details")}
           </button>
           {armed ? (
@@ -127,11 +144,11 @@ export function ModCard({
                   setArmed(false);
                   onUninstall();
                 }}
-                className="rounded bg-danger px-3 py-1.5 font-medium text-white"
+                className="btn btn-danger-solid"
               >
                 {t("action.uninstall")}
               </button>
-              <button onClick={() => setArmed(false)} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+              <button onClick={() => setArmed(false)} className="btn">
                 {t("action.cancel")}
               </button>
             </>
@@ -139,18 +156,23 @@ export function ModCard({
             <button
               disabled={disabled}
               onClick={() => setArmed(true)}
-              className="rounded border border-line px-3 py-1.5 text-muted hover:bg-surface-2 hover:text-ink"
+              className="btn btn-danger opacity-80 hover:opacity-100"
             >
               {t("action.uninstall")}
             </button>
           )}
         </div>
+        {armed && neededBy.length > 0 && (
+          <p className="anim-rise rounded-md border border-danger/50 bg-danger/10 px-3 py-2 text-xs text-danger">
+            {t("mods.neededBy", { names: neededBy.join(", ") })}
+          </p>
+        )}
       </div>
       <div className="grid h-[117px] w-[208px] shrink-0 place-items-center overflow-hidden rounded-md bg-surface-2">
         {image ? (
           <img src={image} alt="" className="h-full w-full object-cover" draggable={false} />
         ) : (
-          <Logo size={44} className="text-line" />
+          <CoverPlaceholder name={mod.name} />
         )}
       </div>
       </div>

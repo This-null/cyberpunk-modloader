@@ -4,6 +4,7 @@ import { useT } from "../../i18n";
 import type { Relation } from "../../lib/groups";
 import type { ModRecord } from "../../lib/ipc";
 import { useMods } from "../../stores/mods";
+import { useDependents } from "./useDependents";
 
 interface Props {
   mod: ModRecord;
@@ -19,8 +20,9 @@ interface Props {
 export function VersionRow({ mod, relation, disabled, onEnable, onDisable, onUninstall, selected, onSelect }: Props) {
   const t = useT();
   const [armed, setArmed] = useState(false);
+  const neededBy = useDependents(mod, armed);
   const openDetail = useMods((s) => s.openDetail);
-  const small = "rounded border border-line px-3 py-1 text-sm hover:bg-surface";
+  const small = "btn btn-sm";
 
   return (
     <li
@@ -45,9 +47,15 @@ export function VersionRow({ mod, relation, disabled, onEnable, onDisable, onUni
           onSelect({ ctrl: true, shift: e.shiftKey });
         }}
         aria-label={t("mods.select", { name: mod.name })}
-        className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--accent)]"
+        className="shrink-0"
       />
-      <span className={clsx("h-2.5 w-2.5 shrink-0 rounded-full", mod.enabled ? "bg-ok" : "bg-muted")} aria-hidden />
+      <span
+        className={clsx(
+          "h-3 w-3 shrink-0 rounded-full",
+          mod.enabled ? "bg-ok shadow-[0_0_10px_2px_color-mix(in_srgb,var(--ok)_60%,transparent)]" : "border-2 border-muted bg-transparent",
+        )}
+        aria-hidden
+      />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span className="truncate font-medium">{mod.name}</span>
         {mod.version && <span className="shrink-0 rounded border border-line px-1.5 py-0.5 text-xs text-muted">{mod.version}</span>}
@@ -56,7 +64,7 @@ export function VersionRow({ mod, relation, disabled, onEnable, onDisable, onUni
         <span className="shrink-0 text-xs text-muted">{mod.enabled ? t("mods.enabled") : t("mods.disabled")}</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button disabled={disabled} onClick={mod.enabled ? onDisable : onEnable} className={clsx(small, !mod.enabled && "bg-accent font-medium text-accent-ink hover:bg-accent")}>
+        <button disabled={disabled} onClick={mod.enabled ? onDisable : onEnable} className={clsx("btn btn-sm", mod.enabled ? "btn-danger" : "btn-ok")}>
           {mod.enabled ? t("action.disable") : t("action.enable")}
         </button>
         <button onClick={() => openDetail(mod.name)} className={small}>
@@ -70,7 +78,7 @@ export function VersionRow({ mod, relation, disabled, onEnable, onDisable, onUni
                 setArmed(false);
                 onUninstall();
               }}
-              className="rounded bg-danger px-3 py-1 text-sm font-medium text-white"
+              className="btn btn-sm btn-danger-solid"
             >
               {t("action.uninstall")}
             </button>
@@ -79,11 +87,16 @@ export function VersionRow({ mod, relation, disabled, onEnable, onDisable, onUni
             </button>
           </>
         ) : (
-          <button disabled={disabled} onClick={() => setArmed(true)} className={`${small} text-muted hover:text-ink`}>
+          <button disabled={disabled} onClick={() => setArmed(true)} className="btn btn-sm btn-danger opacity-80 hover:opacity-100">
             {t("action.uninstall")}
           </button>
         )}
       </div>
+      {armed && neededBy.length > 0 && (
+        <p className="anim-rise basis-full rounded-md border border-danger/50 bg-danger/10 px-3 py-2 text-xs text-danger">
+          {t("mods.neededBy", { names: neededBy.join(", ") })}
+        </p>
+      )}
     </li>
   );
 }

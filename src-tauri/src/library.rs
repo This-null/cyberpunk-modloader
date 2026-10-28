@@ -1,6 +1,6 @@
 use crate::conflicts::find_conflicts;
 use crate::error::AppError;
-use crate::layout::{is_reserved_device, is_rooted, map_entry};
+use crate::layout::{is_reserved_device, is_rooted, map_all};
 use crate::meta::{self, ModManifest, PackEntry, PackManifest, MAX_IMAGE, MAX_VERSION};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::de::DeserializeOwned;
@@ -22,6 +22,11 @@ const MAX_TEXT: usize = 4000;
 const BACKUP_DIR: &str = ".overwritten";
 
 static STATE_LOCK: Mutex<()> = Mutex::new(());
+static IGNORED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+pub fn take_ignored() -> Vec<String> {
+    std::mem::take(&mut *IGNORED.lock().unwrap_or_else(|e| e.into_inner()))
+}
 static BUSY_NAMES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
 fn root_key(root: &Path) -> String {
@@ -73,6 +78,14 @@ pub struct ModRecord {
     pub nexus_id: Option<u64>,
     #[serde(default)]
     pub backups: Vec<Backup>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct ApplyReport {
+    pub enabled: Vec<String>,
+    pub disabled: Vec<String>,
+    pub failed: Vec<(String, String)>,
+    pub missing: Vec<String>,
 }
 
 pub struct Library {
@@ -215,8 +228,10 @@ fn plan_single(
     let list = list_entries(archive, prefix)?;
     let mut files: Vec<(usize, String)> = Vec::new();
     let mut bytes = 0u64;
-    for (i, rel, size) in &list {
-        if let Some(p) = map_entry(rel, name)? {
+    let rels: Vec<&str> = list.iter().map(|(_, rel, _)| rel.as_str()).collect();
+    let (mapped, ignored) = map_all(&rels, name)?;
+    for ((i, _, size), target) in list.iter().zip(mapped) {
+        if let Some(p) = target {
             let r = rel_string(&p);
             if !files.iter().any(|(_, x)| x.eq_ignore_ascii_case(&r)) {
                 if *size > limits.max_file {
@@ -231,8 +246,13 @@ fn plan_single(
         }
     }
     if files.is_empty() {
-        return Err(AppError::Unmappable("no installable files".into()));
+        if let Some(first) = ignored.first() {
+            return Err(AppError::Unmappable(first.clone()));
+        }
+        let seen: Vec<&str> = list.iter().map(|(_, rel, _)| rel.as_str()).take(6).collect();
+        return Err(AppError::NoFiles(seen.join(", ")));
     }
+    IGNORED.lock().unwrap_or_else(|e| e.into_inner()).extend(ignored);
 
     let images: Vec<(usize, &str, u64)> = list
         .iter()
@@ -428,6 +448,7 @@ impl Library {
         suggested: &str,
         limits: &Limits,
     ) -> Result<(Vec<ModRecord>, Vec<String>), AppError> {
+        take_ignored();
         let mut archive = ZipArchive::new(fs::File::open(zip_path)?)?;
         if archive.len() > limits.max_entries {
             return Err(AppError::Zip("the archive has too many entries".into()));
@@ -820,6 +841,26 @@ impl Library {
         }
     }
 
+    pub fn apply_preset(&self, wanted: &[String]) -> Result<ApplyReport, AppError> {
+        let records = self.load()?;
+        let preset = crate::presets::Preset { name: String::new(), mods: wanted.to_vec() };
+        let plan = crate::presets::plan(&preset, &records);
+        let mut report = ApplyReport { missing: plan.missing, ..ApplyReport::default() };
+        for name in &plan.disable {
+            match self.disable(name) {
+                Ok(()) => report.disabled.push(name.clone()),
+                Err(e) => report.failed.push((name.clone(), e.code().to_string())),
+            }
+        }
+        for name in &plan.enable {
+            match self.activate_exclusive(name, false) {
+                Ok(()) => report.enabled.push(name.clone()),
+                Err(e) => report.failed.push((name.clone(), e.code().to_string())),
+            }
+        }
+        Ok(report)
+    }
+
     pub fn replace_older(&self, names: &[String]) -> Vec<String> {
         let mut replaced = Vec::new();
         for name in names {
@@ -1152,6 +1193,99 @@ mod tests {
     }
 
     const CET: &str = "bin/x64/plugins/cyber_engine_tweaks/mods/m/init.lua";
+
+    #[test]
+    fn common_real_world_archive_layouts_land_where_the_game_expects_them() {
+        let cet = "bin/x64/plugins/cyber_engine_tweaks/mods";
+        let cases: Vec<(&str, Vec<&str>, Vec<String>)> = vec![
+            ("rooted cet mod", vec!["bin/x64/plugins/cyber_engine_tweaks/mods/a/init.lua"], vec![format!("{cet}/a/init.lua")]),
+            ("wrapper around a rooted tree", vec!["My Mod v1/archive/pc/mod/a.archive", "My Mod v1/readme.txt"], vec!["archive/pc/mod/a.archive".into()]),
+            ("double wrapper", vec!["Release/My Mod/archive/pc/mod/a.archive"], vec!["archive/pc/mod/a.archive".into()]),
+            ("flat archive, xl, docs and preview", vec!["a.archive", "a.archive.xl", "README.md", "preview.png", "guide.pdf"], vec!["archive/pc/mod/a.archive".into(), "archive/pc/mod/a.archive.xl".into()]),
+            ("flat redscript goes under the mod name", vec!["a.reds"], vec!["r6/scripts/m/a.reds".into()]),
+            ("wrapped redscript", vec!["Pack/r6/scripts/Pack/a.reds"], vec!["r6/scripts/Pack/a.reds".into()]),
+            ("bare cet folder", vec!["Cool/init.lua", "Cool/lib/x.lua"], vec![format!("{cet}/Cool/init.lua"), format!("{cet}/Cool/lib/x.lua")]),
+            ("tweakxl yaml", vec!["tweaks/a.yaml", "b.tweak"], vec!["r6/tweaks/tweaks/a.yaml".into(), "r6/tweaks/b.tweak".into()]),
+            ("red4ext plugin in a folder", vec!["Plug/Plug.dll"], vec!["red4ext/plugins/Plug/Plug.dll".into()]),
+            ("redmod", vec!["mods/Fancy/info.json", "mods/Fancy/archives/f.archive"], vec!["mods/Fancy/archives/f.archive".into(), "mods/Fancy/info.json".into()]),
+            ("backslash paths", vec![r"pack\archive\pc\mod\b.archive"], vec!["archive/pc/mod/b.archive".into()]),
+            ("helper script keeps its place", vec!["archive/pc/mod/a.archive", "Cyberclean.bat"], vec!["Cyberclean.bat".into(), "archive/pc/mod/a.archive".into()]),
+            ("unknown extras are left out", vec!["archive/pc/mod/a.archive", "weird.bin", "notes.docx"], vec!["archive/pc/mod/a.archive".into()]),
+        ];
+        for (label, entries, expected) in cases {
+            let e = env();
+            let list: Vec<(&str, &str)> = entries.iter().map(|n| (*n, "x")).collect();
+            let zip = make_zip(&e.work, "m.zip", &list);
+            let rec = inst(&e.lib, &zip, "m").unwrap_or_else(|err| panic!("{label}: {err}"));
+            let mut got = rec.files.clone();
+            got.sort();
+            let mut want = expected;
+            want.sort();
+            assert_eq!(got, want, "{label}");
+        }
+    }
+
+    #[test]
+    fn archives_with_nothing_installable_or_an_option_installer_fail_with_a_clear_reason() {
+        let e = env();
+        let notes = make_zip(&e.work, "n.zip", &[("PlaceholderMod.txt", "x"), ("guide.pdf", "x")]);
+        assert!(matches!(e.lib.install_any(&notes, "n"), Err(AppError::NoFiles(_))));
+        let fomod = make_zip(&e.work, "f.zip", &[("fomod/ModuleConfig.xml", "<x/>"), ("Option A/archive/pc/mod/a.archive", "x")]);
+        assert!(matches!(e.lib.install_any(&fomod, "f"), Err(AppError::Fomod)));
+    }
+
+    #[test]
+    fn switching_presets_turns_the_right_mods_on_and_off() {
+        let e = env();
+        let a = make_zip(&e.work, "a.zip", &[("archive/pc/mod/a.archive", "a")]);
+        let b = make_zip(&e.work, "b.zip", &[("archive/pc/mod/b.archive", "b")]);
+        let c = make_zip(&e.work, "c.zip", &[("archive/pc/mod/c.archive", "c")]);
+        for (z, n) in [(&a, "A"), (&b, "B"), (&c, "C")] {
+            inst(&e.lib, z, n).unwrap();
+        }
+        e.lib.enable("A", false).unwrap();
+        e.lib.enable("B", false).unwrap();
+        let r = e.lib.apply_preset(&["B".to_string(), "C".to_string(), "Gone".to_string()]).unwrap();
+        assert_eq!((r.enabled.as_slice(), r.disabled.as_slice()), (["C".to_string()].as_slice(), ["A".to_string()].as_slice()));
+        assert_eq!(r.missing, vec!["Gone".to_string()]);
+        assert!(r.failed.is_empty());
+        assert!(!e.game.join("archive/pc/mod/a.archive").exists());
+        assert!(e.game.join("archive/pc/mod/b.archive").exists() && e.game.join("archive/pc/mod/c.archive").exists());
+        let again = e.lib.apply_preset(&["B".to_string(), "C".to_string()]).unwrap();
+        assert!(again.enabled.is_empty() && again.disabled.is_empty());
+    }
+
+    #[test]
+    fn a_preset_with_a_conflicting_mod_reports_it_and_still_switches_the_rest() {
+        let e = env();
+        let a = make_zip(&e.work, "a.zip", &[("archive/pc/mod/x.archive", "a")]);
+        let b = make_zip(&e.work, "b.zip", &[("archive/pc/mod/x.archive", "b")]);
+        let c = make_zip(&e.work, "c.zip", &[("archive/pc/mod/c.archive", "c")]);
+        for (z, n) in [(&a, "A"), (&b, "B"), (&c, "C")] {
+            inst(&e.lib, z, n).unwrap();
+        }
+        e.lib.enable("A", false).unwrap();
+        let r = e.lib.apply_preset(&["A".to_string(), "B".to_string(), "C".to_string()]).unwrap();
+        assert_eq!(r.enabled, vec!["C".to_string()]);
+        assert_eq!(r.failed.len(), 1);
+        assert_eq!(r.failed[0].0, "B");
+        assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/x.archive")).unwrap(), "a");
+    }
+
+    #[test]
+    fn a_preset_picks_the_newer_version_when_two_versions_of_one_mod_exist() {
+        let e = env();
+        let old = make_zip(&e.work, "old.zip", &[("archive/pc/mod/a.archive", "old")]);
+        let new = make_zip(&e.work, "new.zip", &[("archive/pc/mod/a.archive", "new")]);
+        let o = inst(&e.lib, &old, "Cool 1").unwrap();
+        e.lib.set_nexus_id(&o.name, Some(9)).unwrap();
+        let n = inst(&e.lib, &new, "Cool 2").unwrap();
+        e.lib.set_nexus_id(&n.name, Some(9)).unwrap();
+        e.lib.enable(&o.name, false).unwrap();
+        let r = e.lib.apply_preset(&[n.name.clone()]).unwrap();
+        assert_eq!((r.enabled, r.disabled), (vec![n.name.clone()], vec![o.name.clone()]));
+        assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/a.archive")).unwrap(), "new");
+    }
 
     #[test]
     fn a_new_version_of_a_nexus_mod_takes_the_place_of_the_enabled_old_one() {

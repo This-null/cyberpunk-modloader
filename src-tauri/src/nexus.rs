@@ -478,6 +478,56 @@ pub fn choose_file(files: &[FileInfo]) -> Option<&FileInfo> {
         .or_else(|| files.iter().filter(usable).max_by_key(|f| f.uploaded_timestamp))
 }
 
+pub fn fallback_files(files: &[FileInfo], skip: u64) -> Vec<u64> {
+    let rank = |f: &FileInfo| match f.category_name.to_ascii_uppercase().as_str() {
+        "MAIN" => 0,
+        "UPDATE" => 1,
+        "OPTIONAL" => 2,
+        "MISCELLANEOUS" => 3,
+        _ => 9,
+    };
+    let mut usable: Vec<&FileInfo> = files
+        .iter()
+        .filter(|f| f.file_id != skip && f.file_id > 0 && rank(f) < 9)
+        .collect();
+    usable.sort_by(|a, b| rank(a).cmp(&rank(b)).then(b.uploaded_timestamp.cmp(&a.uploaded_timestamp)));
+    usable.into_iter().take(3).map(|f| f.file_id).collect()
+}
+
+pub fn md5_hex(path: &std::path::Path) -> Result<String, AppError> {
+    use md5::{Digest, Md5};
+    let mut file = std::fs::File::open(path).map_err(|e| AppError::Io(e.to_string()))?;
+    let mut hasher = Md5::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| AppError::Io(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+#[derive(Deserialize)]
+struct Md5Hit {
+    #[serde(rename = "mod", default)]
+    mod_info: ModInfo,
+    #[serde(default)]
+    file_details: FileInfo,
+}
+
+pub fn md5_search(api: &Api, key: &str, hash: &str) -> Result<Option<(ModInfo, FileInfo)>, AppError> {
+    if hash.len() != 32 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AppError::NotFound("hash".into()));
+    }
+    match get::<Vec<Md5Hit>>(api, key, &format!("v1/games/{GAME}/mods/md5_search/{hash}.json")) {
+        Ok(hits) => Ok(hits.into_iter().find(|h| h.mod_info.mod_id > 0).map(|h| (h.mod_info, h.file_details))),
+        Err(AppError::NotFound(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 pub fn download_link(api: &Api, key: &str, mod_id: u64, file_id: u64) -> Result<String, AppError> {
     download_link_with(api, key, mod_id, file_id, None)
 }
@@ -935,7 +985,7 @@ impl KeyStore for MemStore {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::io::{BufRead, BufReader, Read as _, Write};
+    use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc, Mutex};
@@ -1531,6 +1581,33 @@ b")));
         let err = get_ex::<ModInfo>(&api, KEY, "v1/games/cyberpunk2077/mods/1/files/2/download_link.json?key=SECRETKEY&expires=9", true).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("download_link.json") && !msg.contains("SECRETKEY") && !msg.contains(KEY), "{msg}");
+    }
+
+    #[test]
+    fn fallback_files_skip_the_one_tried_and_old_versions_and_prefer_main_then_newest() {
+        let f = |id: u64, cat: &str, at: u64| FileInfo { file_id: id, category_name: cat.into(), uploaded_timestamp: at, ..FileInfo::default() };
+        let files = [f(1, "MAIN", 5), f(2, "OPTIONAL", 9), f(3, "MAIN", 7), f(4, "OLD_VERSION", 99), f(5, "UPDATE", 1), f(6, "OPTIONAL", 2), f(7, "OPTIONAL", 3)];
+        assert_eq!(fallback_files(&files, 1), vec![3, 5, 2]);
+        assert!(fallback_files(&[f(1, "MAIN", 1)], 1).is_empty());
+    }
+
+    #[test]
+    fn a_file_is_identified_by_its_md5_and_unknown_files_are_just_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.zip");
+        std::fs::write(&file, b"abc").unwrap();
+        assert_eq!(md5_hex(&file).unwrap(), "900150983cd24fb0d6963f7d28e17f72");
+        let api = serve(|path, _| {
+            if path == "/v1/games/cyberpunk2077/mods/md5_search/900150983cd24fb0d6963f7d28e17f72.json" {
+                (200, vec![], r#"[{"mod":{"mod_id":1424,"name":"Neon","version":"2.0","picture_url":null},"file_details":{"file_id":9,"version":"1.9"}}]"#.into())
+            } else {
+                (404, vec![], "{}".into())
+            }
+        });
+        let (info, file_info) = md5_search(&api, KEY, "900150983cd24fb0d6963f7d28e17f72").unwrap().unwrap();
+        assert_eq!((info.mod_id, file_info.version.as_str()), (1424, "1.9"));
+        assert!(md5_search(&api, KEY, "00000000000000000000000000000000").unwrap().is_none());
+        assert!(md5_search(&api, KEY, "../../etc").is_err());
     }
 
     #[test]

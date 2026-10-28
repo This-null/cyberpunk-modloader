@@ -19,11 +19,36 @@ pub fn bad_segment(seg: &str) -> bool {
         || is_reserved_device(seg)
 }
 
+const WRAPPED_ROOTS: [(&str, &[&str]); 5] = [
+    ("archive", &["pc"]),
+    ("bin", &["x64"]),
+    ("r6", &["scripts", "tweaks", "config", "cache", "inputs", "audioware"]),
+    ("red4ext", &["plugins"]),
+    ("engine", &["tools", "config"]),
+];
+
+fn is_root_name(seg: &str) -> bool {
+    ROOTS.contains(&seg.to_ascii_lowercase().as_str())
+}
+
+fn wrapper_start(segments: &[&str]) -> usize {
+    if segments.first().is_some_and(|s| is_root_name(s)) {
+        return 0;
+    }
+    for i in 1..segments.len().min(4) {
+        let here = segments[i].to_ascii_lowercase();
+        let Some((_, nexts)) = WRAPPED_ROOTS.iter().find(|(r, _)| *r == here) else { continue };
+        if segments.get(i + 1).is_some_and(|n| nexts.contains(&n.to_ascii_lowercase().as_str())) {
+            return i;
+        }
+    }
+    0
+}
+
 pub fn is_rooted(raw: &str) -> bool {
-    raw.replace('\\', "/")
-        .split('/')
-        .find(|s| !s.is_empty() && *s != ".")
-        .is_some_and(|first| ROOTS.contains(&first.to_ascii_lowercase().as_str()))
+    let norm = raw.replace('\\', "/");
+    let segments: Vec<&str> = norm.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
+    segments.first().is_some_and(|_| is_root_name(segments[wrapper_start(&segments)]))
 }
 
 pub fn map_entry(raw: &str, mod_name: &str) -> Result<Option<PathBuf>, AppError> {
@@ -43,13 +68,16 @@ pub fn map_entry(raw: &str, mod_name: &str) -> Result<Option<PathBuf>, AppError>
         .split('/')
         .filter(|s| !s.is_empty() && *s != ".")
         .collect();
-    let Some(first) = segments.first() else {
+    if segments.is_empty() {
         return Ok(None);
-    };
+    }
+    let checked = segments.clone();
+    let segments: Vec<&str> = segments[wrapper_start(&segments)..].to_vec();
+    let first = segments[0];
     let tool = segments.len() >= 3
         && segments[0].eq_ignore_ascii_case("engine")
         && segments[1].eq_ignore_ascii_case("tools");
-    if segments.iter().any(|s| bad_segment(s))
+    if checked.iter().any(|s| bad_segment(s))
         || (!tool && segments.last().is_some_and(|s| s.to_ascii_lowercase().ends_with(".exe")))
     {
         return Err(AppError::UnsafePath(raw.to_string()));
@@ -59,8 +87,14 @@ pub fn map_entry(raw: &str, mod_name: &str) -> Result<Option<PathBuf>, AppError>
     }
     let name = segments.last().copied().unwrap_or_default();
     let lower = name.to_ascii_lowercase();
-    if lower.ends_with(".md") || lower.ends_with(".txt") || crate::meta::is_image(&lower) {
+    if [".md", ".txt", ".pdf", ".doc", ".docx", ".rtf", ".odt", ".html", ".htm", ".nfo"].iter().any(|e| lower.ends_with(e)) || crate::meta::is_image(&lower) {
         return Ok(None);
+    }
+    if [".url", ".lnk"].iter().any(|e| lower.ends_with(e)) {
+        return Ok(None);
+    }
+    if [".bat", ".cmd", ".ps1", ".vbs", ".sh"].iter().any(|e| lower.ends_with(e)) {
+        return Ok(Some(segments.iter().collect()));
     }
     if segments.len() == 1 && lower.starts_with("launcher-") {
         return Ok(None);
@@ -75,10 +109,129 @@ pub fn map_entry(raw: &str, mod_name: &str) -> Result<Option<PathBuf>, AppError>
     Err(AppError::Unmappable(raw.to_string()))
 }
 
+fn cet_dirs(rels: &[&str]) -> Vec<Vec<String>> {
+    let mut dirs: Vec<Vec<String>> = rels
+        .iter()
+        .filter_map(|r| {
+            let norm = r.replace('\\', "/");
+            let segs: Vec<String> = norm.split('/').filter(|s| !s.is_empty() && *s != ".").map(str::to_string).collect();
+            let last = segs.last()?;
+            (last.eq_ignore_ascii_case("init.lua") && !is_root_name(&segs[0])).then(|| segs[..segs.len() - 1].to_vec())
+        })
+        .collect();
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.len()));
+    dirs
+}
+
+fn map_extra(raw: &str, mod_name: &str, cet: &[Vec<String>]) -> Option<PathBuf> {
+    let norm = raw.replace('\\', "/");
+    let segs: Vec<&str> = norm.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
+    let name = segs.last()?;
+    let lower = name.to_ascii_lowercase();
+    for dir in cet {
+        let inside = segs.len() > dir.len() && dir.iter().zip(&segs).all(|(a, b)| a.eq_ignore_ascii_case(b));
+        if inside {
+            let folder = dir.last().map(String::as_str).unwrap_or(mod_name);
+            let rest: PathBuf = segs[dir.len()..].iter().collect();
+            return Some(PathBuf::from("bin/x64/plugins/cyber_engine_tweaks/mods").join(folder).join(rest));
+        }
+    }
+    if [".tweak", ".yaml", ".yml"].iter().any(|e| lower.ends_with(e)) {
+        return Some(PathBuf::from("r6/tweaks").join(segs.iter().collect::<PathBuf>()));
+    }
+    if lower.ends_with(".dll") {
+        let under = if segs.len() == 1 { PathBuf::from(mod_name).join(name) } else { segs.iter().collect() };
+        return Some(PathBuf::from("red4ext/plugins").join(under));
+    }
+    None
+}
+
+pub fn map_all(rels: &[&str], mod_name: &str) -> Result<(Vec<Option<PathBuf>>, Vec<String>), AppError> {
+    if rels.iter().any(|r| r.replace('\\', "/").to_ascii_lowercase().ends_with("fomod/moduleconfig.xml")) {
+        return Err(AppError::Fomod);
+    }
+    let cet = cet_dirs(rels);
+    let mut ignored = Vec::new();
+    let mut out = Vec::with_capacity(rels.len());
+    for r in rels {
+        match map_entry(r, mod_name) {
+            Err(AppError::Unmappable(_)) => match map_extra(r, mod_name, &cet) {
+                Some(p) => out.push(Some(p)),
+                None => {
+                    ignored.push(r.to_string());
+                    out.push(None);
+                }
+            },
+            other => out.push(other?),
+        }
+    }
+    Ok((out, ignored))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn helper_scripts_keep_their_place_in_the_game_folder_and_shortcuts_are_dropped() {
+        assert_eq!(map_entry("Cyberclean.bat", "m").unwrap(), Some(PathBuf::from("Cyberclean.bat")));
+        assert_eq!(map_entry("Pack/run.cmd", "m").unwrap(), Some(PathBuf::from("Pack/run.cmd")));
+        assert_eq!(map_entry("bin/x64/tool.bat", "m").unwrap(), Some(PathBuf::from("bin/x64/tool.bat")));
+        for f in ["site.url", "link.lnk"] {
+            assert_eq!(map_entry(f, "m").unwrap(), None, "{f}");
+        }
+    }
+
+    #[test]
+    fn readme_style_documents_of_any_common_kind_are_skipped() {
+        for f in ["Hex Editing Colors and Surfaces in Cyberpunk 2077.pdf", "guide.docx", "Docs/manual.rtf", "info.nfo", "index.html"] {
+            assert_eq!(map_entry(f, "m").unwrap(), None, "{f}");
+        }
+    }
+
+    #[test]
+    fn a_wrapper_folder_around_a_game_tree_is_stripped() {
+        assert_eq!(map_entry("My Mod 1.0/archive/pc/mod/x.archive", "m").unwrap(), Some(PathBuf::from("archive/pc/mod/x.archive")));
+        assert_eq!(
+            map_entry("Pack\\bin\\x64\\plugins\\cyber_engine_tweaks\\mods\\a\\init.lua", "m").unwrap(),
+            Some(PathBuf::from("bin/x64/plugins/cyber_engine_tweaks/mods/a/init.lua"))
+        );
+        assert_eq!(map_entry("Mod/r6/scripts/a/b.reds", "m").unwrap(), Some(PathBuf::from("r6/scripts/a/b.reds")));
+        assert_eq!(map_entry("Pack/archive/readme.md", "m").unwrap(), None);
+        assert_eq!(map_entry("Pack/archive/stuff.archive", "m").unwrap(), Some(PathBuf::from("archive/pc/mod/Pack/archive/stuff.archive")));
+        assert!(is_rooted("Wrapper/archive/pc/mod/a.archive") && !is_rooted("Wrapper/archive/a.archive"));
+    }
+
+    #[test]
+    fn cet_tweak_and_plugin_files_find_their_place() {
+        let rels = ["CoolMod/init.lua", "CoolMod/ui/panel.lua", "CoolMod/data.json", "Other/a.tweak", "n.yaml", "plugin.dll", "Sub/b.dll"];
+        let out = map_all(&rels, "mm").unwrap().0;
+        let cet = "bin/x64/plugins/cyber_engine_tweaks/mods/CoolMod";
+        assert_eq!(out[0], Some(PathBuf::from(format!("{cet}/init.lua"))));
+        assert_eq!(out[1], Some(PathBuf::from(format!("{cet}/ui/panel.lua"))));
+        assert_eq!(out[2], Some(PathBuf::from(format!("{cet}/data.json"))));
+        assert_eq!(out[3], Some(PathBuf::from("r6/tweaks/Other/a.tweak")));
+        assert_eq!(out[4], Some(PathBuf::from("r6/tweaks/n.yaml")));
+        assert_eq!(out[5], Some(PathBuf::from("red4ext/plugins/mm/plugin.dll")));
+        assert_eq!(out[6], Some(PathBuf::from("red4ext/plugins/Sub/b.dll")));
+    }
+
+    #[test]
+    fn a_cet_mod_with_init_lua_at_the_archive_root_goes_under_the_mod_name() {
+        let out = map_all(&["init.lua", "lib/x.lua"], "Fancy").unwrap().0;
+        assert_eq!(out[0], Some(PathBuf::from("bin/x64/plugins/cyber_engine_tweaks/mods/Fancy/init.lua")));
+        assert_eq!(out[1], Some(PathBuf::from("bin/x64/plugins/cyber_engine_tweaks/mods/Fancy/lib/x.lua")));
+    }
+
+    #[test]
+    fn fomod_installers_are_refused_and_unknown_files_still_fail() {
+        assert!(matches!(map_all(&["fomod/ModuleConfig.xml", "a/archive/pc/mod/x.archive"], "m"), Err(AppError::Fomod)));
+        let (out, ignored) = map_all(&["thing.bin", "a.archive"], "m").unwrap();
+        assert_eq!(out, vec![None, Some(PathBuf::from("archive/pc/mod/a.archive"))]);
+        assert_eq!(ignored, vec!["thing.bin".to_string()]);
+        assert!(matches!(map_all(&["../x.archive"], "m"), Err(AppError::UnsafePath(_))));
+    }
 
     #[test]
     fn rooted_paths_pass_through() {

@@ -148,7 +148,7 @@ export function NightCoopCard({ locked }: { locked: boolean }) {
       {!data && !loading && failed && (
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-muted">{t("nightcoop.unreachable")}</p>
-          <button onClick={fetch} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+          <button onClick={fetch} className="btn">
             {t("nightcoop.retry")}
           </button>
         </div>
@@ -157,7 +157,7 @@ export function NightCoopCard({ locked }: { locked: boolean }) {
       {data?.offline && (
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-muted">{t("nightcoop.offline")}</p>
-          <button onClick={fetch} className="rounded border border-line px-3 py-1.5 hover:bg-surface-2">
+          <button onClick={fetch} className="btn">
             {t("nightcoop.retry")}
           </button>
         </div>
@@ -176,7 +176,7 @@ export function NightCoopCard({ locked }: { locked: boolean }) {
                 <button
                   disabled={busy || data.offline}
                   onClick={() => install(latest.version)}
-                  className="rounded-md bg-accent px-4 py-2.5 font-medium text-accent-ink hover:brightness-110"
+                  className="btn btn-primary"
                 >
                   {installed?.version
                     ? t("nightcoop.update", { version: latest.version })
@@ -224,7 +224,7 @@ export function NightCoopCard({ locked }: { locked: boolean }) {
                     disabled={translating}
                     onClick={() => void translate()}
                     title={t("nightcoop.translateHint")}
-                    className="rounded border border-line px-2 py-1 hover:bg-surface-2 disabled:opacity-60"
+                    className="btn btn-sm disabled:opacity-60"
                   >
                     {translating ? t("nightcoop.translating") : t("nightcoop.translate")}
                   </button>
@@ -235,10 +235,10 @@ export function NightCoopCard({ locked }: { locked: boolean }) {
               {autoMode === "ask" && lang !== "en" && !sameTranslation && (
                 <div className="anim-rise mt-3 flex flex-wrap items-center gap-3 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs">
                   <span className="min-w-0 flex-1 text-ink">{t("translate.ask")}</span>
-                  <button onClick={() => setAutoMode("on")} className="rounded bg-accent px-3 py-1 font-medium text-accent-ink">
+                  <button onClick={() => setAutoMode("on")} className="btn btn-sm btn-primary">
                     {t("translate.yes")}
                   </button>
-                  <button onClick={() => setAutoMode("off")} className="rounded border border-line px-3 py-1 hover:bg-surface-2">
+                  <button onClick={() => setAutoMode("off")} className="btn btn-sm">
                     {t("translate.no")}
                   </button>
                 </div>
@@ -272,7 +272,7 @@ export function NightCoopCard({ locked }: { locked: boolean }) {
                       <button
                         disabled={busy || data.offline}
                         onClick={() => install(r.version)}
-                        className="rounded border border-line px-3 py-1.5 hover:bg-surface"
+                        className="btn"
                       >
                         {t("nightcoop.use")}
                       </button>

@@ -4,7 +4,7 @@ import { ipc, toAppError } from "../lib/ipc";
 import { useErrors } from "./errors";
 import { useMods } from "./mods";
 
-export type Theme = "system" | "dark" | "light";
+export type Theme = "system" | "dark" | "light" | "midnight" | "ocean" | "mocha" | "aurora" | "sunset" | "neon" | "emerald";
 export type Motion = "system" | "full" | "reduced";
 export type AutoTranslate = "ask" | "on" | "off";
 
@@ -19,6 +19,8 @@ interface SettingsState {
   setUpdates: (updates: "on" | "off") => void;
   translateLang: string;
   setTranslateLang: (lang: string) => void;
+  modUpdates: "manual" | "auto";
+  setModUpdates: (v: "manual" | "auto") => void;
   gameDir: string | null;
   detected: string[];
   invalid: boolean;
@@ -59,6 +61,8 @@ export const useSettings = create<SettingsState>()(
       setUpdates: (updates) => set({ updates }),
       translateLang: "app",
       setTranslateLang: (translateLang) => set({ translateLang }),
+      modUpdates: "manual",
+      setModUpdates: (modUpdates) => set({ modUpdates }),
       gameDir: null,
       detected: [],
       invalid: false,
@@ -91,6 +95,6 @@ export const useSettings = create<SettingsState>()(
         }
       },
     }),
-    { name: "cp2077-theme", partialize: (s) => ({ theme: s.theme, motion: s.motion, translate: s.translate, updates: s.updates, translateLang: s.translateLang }) },
+    { name: "cp2077-theme", partialize: (s) => ({ theme: s.theme, motion: s.motion, translate: s.translate, updates: s.updates, translateLang: s.translateLang, modUpdates: s.modUpdates }) },
   ),
 );

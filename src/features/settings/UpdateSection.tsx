@@ -1,7 +1,7 @@
-import clsx from "clsx";
 import { useT } from "../../i18n";
 import { useSettings } from "../../stores/settings";
 import { useUpdate } from "../../stores/update";
+import { Segmented } from "./Segmented";
 
 export function UpdateSection() {
   const t = useT();
@@ -15,26 +15,12 @@ export function UpdateSection() {
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
       <h2 className="text-base font-semibold">{t("update.title")}</h2>
-      <div className="flex w-fit overflow-hidden rounded border border-line">
-        {(["on", "off"] as const).map((v) => (
-          <button
-            key={v}
-            onClick={() => setUpdates(v)}
-            aria-pressed={updates === v}
-            className={clsx(
-              "px-4 py-2",
-              updates === v ? "bg-accent font-medium text-accent-ink" : "bg-surface hover:bg-surface-2",
-            )}
-          >
-            {v === "on" ? t("update.optOn") : t("update.optOff")}
-          </button>
-        ))}
-      </div>
+      <Segmented value={updates} options={[{ value: "on", label: t("update.optOn") }, { value: "off", label: t("update.optOff") }]} onChange={setUpdates} />
       <div className="flex flex-wrap items-center gap-3">
         <button
           disabled={status === "checking" || status === "downloading"}
           onClick={() => void check(true)}
-          className="rounded border border-line px-4 py-2 hover:bg-surface-2 disabled:opacity-60"
+          className="btn disabled:opacity-60"
         >
           {status === "checking" ? t("update.checking") : t("update.check")}
         </button>
@@ -43,7 +29,7 @@ export function UpdateSection() {
         {status === "available" && (
           <>
             <span>{t("update.available", { version })}</span>
-            <button onClick={() => void install()} className="rounded bg-accent px-4 py-2 font-medium text-accent-ink">
+            <button onClick={() => void install()} className="btn btn-primary">
               {t("update.now")}
             </button>
           </>

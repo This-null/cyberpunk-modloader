@@ -2,6 +2,8 @@ mod archive;
 mod commands;
 mod conflicts;
 mod error;
+mod fomod;
+mod frameworks;
 mod game;
 mod layout;
 mod library;
@@ -10,6 +12,7 @@ mod meta;
 mod nexus;
 mod nightcoop;
 mod nxm;
+mod presets;
 mod profile;
 mod report;
 mod version;
@@ -95,6 +98,24 @@ pub fn run() {
             commands::nexus_check,
             commands::nexus_browse,
             commands::translate_notes,
+            commands::nexus_fill_covers,
+            commands::framework_status,
+            commands::framework_plan,
+            commands::framework_remove,
+            commands::fomod_pending,
+            commands::fomod_eval,
+            commands::fomod_cancel,
+            commands::fomod_install,
+            commands::nexus_files,
+            commands::nexus_install_file,
+            commands::shares_list,
+            commands::get_install_id,
+            commands::reset_install_id,
+            commands::presets_list,
+            commands::preset_save,
+            commands::preset_rename,
+            commands::preset_delete,
+            commands::preset_apply,
             commands::profile_build,
             commands::profile_open,
             commands::profile_share,

@@ -3,6 +3,3 @@ dist/
 src-tauri/target/
 mod_library/
 *.log
-src-tauri/gen/
-.DS_Store
-*.tmp

@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Неофициальный менеджер модов для Cyberpunk 2077 на Windows, сделанный сообществом. Версия 0.0.3 beta.
+Неофициальный менеджер модов для Cyberpunk 2077 на Windows, сделанный сообществом. Версия 0.0.4 beta.
 
 Он не создан CD PROJEKT RED, Nexus Mods или командой NightCoop и не связан с ними.
 
@@ -19,6 +19,7 @@
 - Показывает логи игры, модов и лаунчера и очищает их по вашей просьбе.
 - Работает на английском, турецком, русском, испанском, бразильском португальском, французском, польском и немецком.
 - Есть системная, тёмная и светлая темы.
+- Устанавливает FOMOD-моды с окном настроек, проверяет CET, RED4ext, ArchiveXL и другие фреймворки, обновляет моды с Premium. Вопросы или идеи? Заходи на наш [Discord](https://discord.gg/EaNcFyCEqP).
 
 ## Установка
 
