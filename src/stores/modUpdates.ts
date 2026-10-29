@@ -33,7 +33,7 @@ export const useModUpdates = create<ModUpdatesState>((set, get) => ({
     if (!item || !item.update || get().running) return;
     set({ running: item.name, tried: [...get().tried, item.mod_id] });
     try {
-      await useNexusBrowse.getState().installWithRequirements(item.mod_id);
+      await useNexusBrowse.getState().install(item.mod_id);
       await useMods.getState().refresh();
       await useNexus.getState().check();
       if (useNexus.getState().items[name]?.update !== true) set({ updated: [...get().updated, name] });

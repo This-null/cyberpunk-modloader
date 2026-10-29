@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Nieoficjalny menedżer modów społeczności do Cyberpunk 2077 na Windows. Wersja 0.0.4 beta.
+Nieoficjalny menedżer modów społeczności do Cyberpunk 2077 na Windows. Wersja 0.0.5 beta.
 
 Nie jest tworzony przez CD PROJEKT RED, Nexus Mods ani zespół NightCoop i nie jest z nimi powiązany.
 

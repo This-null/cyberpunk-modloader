@@ -18,7 +18,7 @@ import { useUpdate } from "../stores/update";
 import { applyMotion, applyTheme, useSettings } from "../stores/settings";
 import { FomodDialog } from "../features/mods/FomodDialog";
 import { ErrorDialog } from "./ErrorDialog";
-import { DownloadsBanner, IncomingDialog, UpdateBanner, useIncomingEvents } from "./Incoming";
+import { DownloadsBanner, ExportBanner, IncomingDialog, UpdateBanner, useIncomingEvents } from "./Incoming";
 import { Splash } from "./Splash";
 import { Sidebar } from "./Sidebar";
 import { TitleBar } from "./TitleBar";
@@ -127,6 +127,7 @@ export function App() {
         <Sidebar page={page} onChange={setPage} />
         <div className="flex min-w-0 flex-1 flex-col">
         <UpdateBanner />
+        <ExportBanner />
         <DownloadsBanner />
         <main className="min-w-0 flex-1 overflow-auto p-6">
           <div key={page} className="anim-page h-full">

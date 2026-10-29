@@ -402,4 +402,7 @@ export const de: Record<MessageKey, string> = {
   "fw.goMods": "Mods öffnen",
   "fw.willDelete": "Beim Löschen von {name} werden diese Dateien aus dem Spielordner entfernt: {paths}. Zum Bestätigen auf Aus dem Spiel löschen klicken.",
   "nav.community": "Community",
+  "nexusPage.updatedOn": "Aktualisiert: {date}",
+  "export.packing": "Mods werden gepackt… {percent} %",
+  "modupd.progress": "Aktualisiere… {percent}",
 };

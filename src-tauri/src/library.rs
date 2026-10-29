@@ -140,12 +140,12 @@ fn sanitize_name(raw: &str) -> String {
         .collect();
     let short: String = cleaned
         .trim()
-        .trim_start_matches('.')
+        .trim_start_matches(['.', ' '])
         .chars()
         .take(56)
         .collect::<String>();
     let short = short.trim().trim_end_matches(['.', ' ']).to_string();
-    if is_reserved_device(&short) || short.eq_ignore_ascii_case("state.json") {
+    if is_reserved_device(&short) || short.eq_ignore_ascii_case("state.json") || short.eq_ignore_ascii_case("state.json.tmp") {
         format!("_{short}")
     } else {
         short
@@ -678,12 +678,14 @@ impl Library {
         zw: &mut ZipWriter<fs::File>,
         record: &ModRecord,
         prefix: &str,
+        tick: &mut dyn FnMut(),
     ) -> Result<(String, Option<String>), AppError> {
         let opts = zip_options();
         for rel in &record.files {
             zw.start_file(format!("{prefix}{rel}"), opts)?;
             let mut f = fs::File::open(self.root.join(&record.name).join(rel))?;
             io::copy(&mut f, zw)?;
+            tick();
         }
         let mut cover_name = None;
         if let Some(img) = &record.image {
@@ -700,6 +702,10 @@ impl Library {
     }
 
     pub fn export_mod(&self, name: &str, dest: &Path) -> Result<(), AppError> {
+        self.export_mod_with(name, dest, &mut |_, _| {})
+    }
+
+    pub fn export_mod_with(&self, name: &str, dest: &Path, progress: &mut dyn FnMut(u32, u32)) -> Result<(), AppError> {
         let records = self.load()?;
         let rec = records
             .iter()
@@ -707,7 +713,13 @@ impl Library {
             .ok_or_else(|| AppError::NotFound(name.to_string()))?;
         let written = (|| -> Result<(), AppError> {
             let mut zw = ZipWriter::new(fs::File::create(dest)?);
-            let (_, cover) = self.write_mod(&mut zw, rec, "")?;
+            let total = rec.files.len() as u32;
+            let mut done = 0;
+            progress(0, total);
+            let (_, cover) = self.write_mod(&mut zw, rec, "", &mut || {
+                done += 1;
+                progress(done, total);
+            })?;
             let manifest = ModManifest {
                 format: 1,
                 name: rec.name.clone(),
@@ -727,6 +739,10 @@ impl Library {
     }
 
     pub fn export_pack(&self, names: &[String], dest: &Path) -> Result<(), AppError> {
+        self.export_pack_with(names, dest, &mut |_, _| {})
+    }
+
+    pub fn export_pack_with(&self, names: &[String], dest: &Path, progress: &mut dyn FnMut(u32, u32)) -> Result<(), AppError> {
         let records = self.load()?;
         let mut chosen: Vec<&ModRecord> = Vec::new();
         for name in names {
@@ -743,9 +759,15 @@ impl Library {
         let written = (|| -> Result<(), AppError> {
             let mut zw = ZipWriter::new(fs::File::create(dest)?);
             let mut entries = Vec::new();
+            let total = chosen.iter().map(|r| r.files.len() as u32).sum::<u32>();
+            let mut done = 0;
+            progress(0, total);
             for (i, rec) in chosen.iter().enumerate() {
                 let folder = format!("m{}", i + 1);
-                let (_, cover) = self.write_mod(&mut zw, rec, &format!("mods/{folder}/"))?;
+                let (_, cover) = self.write_mod(&mut zw, rec, &format!("mods/{folder}/"), &mut || {
+                    done += 1;
+                    progress(done, total);
+                })?;
                 entries.push(PackEntry {
                     folder,
                     name: rec.name.clone(),
@@ -861,21 +883,66 @@ impl Library {
         Ok(report)
     }
 
+    fn rename(&self, from: &str, to: &str) -> Result<(), AppError> {
+        let _g = lock();
+        let mut records = self.load()?;
+        if records.iter().any(|r| r.name == to) {
+            return Ok(());
+        }
+        let idx = records
+            .iter()
+            .position(|r| r.name == from)
+            .ok_or_else(|| AppError::NotFound(from.to_string()))?;
+        fs::rename(self.root.join(from), self.root.join(to))?;
+        let (old_bk, new_bk) = (self.backup_root(from), self.backup_root(to));
+        if old_bk.exists() && fs::rename(&old_bk, &new_bk).is_err() {
+            let _ = fs::rename(self.root.join(to), self.root.join(from));
+            return Ok(());
+        }
+        records[idx].name = to.to_string();
+        if let Err(e) = self.save(&records) {
+            let _ = fs::rename(self.root.join(to), self.root.join(from));
+            let _ = fs::rename(&new_bk, &old_bk);
+            return Err(e);
+        }
+        Ok(())
+    }
+
     pub fn replace_older(&self, names: &[String]) -> Vec<String> {
         let mut replaced = Vec::new();
         for name in names {
+            let mut outgoing: Vec<String> = Vec::new();
             let wanted = self.load().is_ok_and(|records| {
                 let Some(target) = records.iter().find(|r| &r.name == name) else {
                     return false;
                 };
-                !target.enabled
-                    && target.nexus_id.is_some_and(|id| id > 0)
-                    && records
-                        .iter()
-                        .any(|r| r.enabled && &r.name != name && r.nexus_id == target.nexus_id)
+                if target.enabled || !target.nexus_id.is_some_and(|id| id > 0) {
+                    return false;
+                }
+                outgoing = records
+                    .iter()
+                    .filter(|r| {
+                        r.enabled
+                            && &r.name != name
+                            && r.nexus_id == target.nexus_id
+                            && same_mod_name(&r.name, name)
+                            && matches!(
+                                crate::nexus::compare_versions(&r.version, &target.version),
+                                Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                            )
+                    })
+                    .map(|r| r.name.clone())
+                    .collect();
+                records.iter().any(|r| r.enabled && &r.name != name && r.nexus_id == target.nexus_id)
             });
             if wanted && self.activate_exclusive(name, false).is_ok() {
                 replaced.push(name.clone());
+                let mut current = name.clone();
+                for old in &outgoing {
+                    if self.uninstall(old).is_ok() && self.rename(&current, old).is_ok() && self.load().is_ok_and(|r| r.iter().any(|x| &x.name == old)) {
+                        current = old.clone();
+                    }
+                }
             }
         }
         replaced
@@ -1307,6 +1374,73 @@ mod tests {
     }
 
     #[test]
+    fn an_update_removes_the_older_version_but_an_old_install_keeps_the_newer_one_disabled() {
+        let e = env();
+        let v1 = make_zip(&e.work, "v1.zip", &[("archive/pc/mod/a.archive", "1")]);
+        let v2 = make_zip(&e.work, "v2.zip", &[("archive/pc/mod/a.archive", "2")]);
+        let a = inst(&e.lib, &v1, "Cool").unwrap();
+        e.lib.set_nexus_id(&a.name, Some(3)).unwrap();
+        e.lib.set_info(&a.name, "", "1.0", None).unwrap();
+        e.lib.enable(&a.name, false).unwrap();
+        let b = inst(&e.lib, &v2, "Cool").unwrap();
+        e.lib.set_nexus_id(&b.name, Some(3)).unwrap();
+        e.lib.set_info(&b.name, "", "2.0", None).unwrap();
+        assert_eq!(e.lib.replace_older(&[b.name.clone()]), vec![b.name.clone()]);
+        let names: Vec<_> = e.lib.list().unwrap().into_iter().map(|r| r.name).collect();
+        assert_eq!(names, vec!["Cool".to_string()]);
+        assert_eq!(e.lib.list().unwrap()[0].version, "2.0");
+        assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/a.archive")).unwrap(), "2");
+
+        let old = inst(&e.lib, &v1, "Cool").unwrap();
+        e.lib.set_nexus_id(&old.name, Some(3)).unwrap();
+        e.lib.set_info(&old.name, "", "1.0", None).unwrap();
+        e.lib.replace_older(&[old.name.clone()]);
+        let list = e.lib.list().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list.iter().find(|r| r.enabled).unwrap().version, "1.0");
+        assert_eq!(list.iter().find(|r| !r.enabled).unwrap().version, "2.0");
+    }
+
+    #[test]
+    fn an_updated_mod_keeps_the_plain_name_instead_of_a_counter() {
+        let e = env();
+        let v1 = make_zip(&e.work, "v1.zip", &[("archive/pc/mod/a.archive", "1")]);
+        let v2 = make_zip(&e.work, "v2.zip", &[("archive/pc/mod/a.archive", "2")]);
+        let a = inst(&e.lib, &v1, "Codeware").unwrap();
+        e.lib.set_nexus_id(&a.name, Some(4)).unwrap();
+        e.lib.set_info(&a.name, "", "1.0", None).unwrap();
+        e.lib.enable(&a.name, false).unwrap();
+        let b = inst(&e.lib, &v2, "Codeware").unwrap();
+        assert_eq!(b.name, "Codeware (2)");
+        e.lib.set_nexus_id(&b.name, Some(4)).unwrap();
+        e.lib.set_info(&b.name, "", "2.0", None).unwrap();
+        e.lib.replace_older(&[b.name.clone()]);
+        let list = e.lib.list().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!((list[0].name.as_str(), list[0].version.as_str(), list[0].enabled), ("Codeware", "2.0", true));
+        assert!(e.lib.root.join("Codeware").is_dir() && !e.lib.root.join("Codeware (2)").exists());
+        e.lib.disable("Codeware").unwrap();
+        e.lib.enable("Codeware", false).unwrap();
+        assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/a.archive")).unwrap(), "2");
+    }
+
+    #[test]
+    fn installing_the_same_version_again_replaces_the_old_copy() {
+        let e = env();
+        let z = make_zip(&e.work, "z.zip", &[("archive/pc/mod/a.archive", "1")]);
+        let a = inst(&e.lib, &z, "Redscript").unwrap();
+        e.lib.set_nexus_id(&a.name, Some(8)).unwrap();
+        e.lib.set_info(&a.name, "", "0.5.32", None).unwrap();
+        e.lib.enable(&a.name, false).unwrap();
+        let b = inst(&e.lib, &z, "Redscript").unwrap();
+        e.lib.set_nexus_id(&b.name, Some(8)).unwrap();
+        e.lib.set_info(&b.name, "", "0.5.32", None).unwrap();
+        e.lib.replace_older(&[b.name.clone()]);
+        let names: Vec<_> = e.lib.list().unwrap().into_iter().map(|r| r.name).collect();
+        assert_eq!(names, vec!["Redscript".to_string()]);
+    }
+
+    #[test]
     fn nothing_is_swapped_when_the_old_version_was_not_in_use_or_is_another_mod() {
         let e = env();
         let a = make_zip(&e.work, "a.zip", &[("archive/pc/mod/a.archive", "a")]);
@@ -1710,6 +1844,17 @@ mod tests {
     }
 
     #[test]
+    fn exporting_reports_progress_up_to_the_file_count() {
+        let e = env();
+        let z = make_zip(&e.work, "a.zip", &[("archive/pc/mod/a.archive", "a"), ("archive/pc/mod/b.archive", "b")]);
+        let r = inst(&e.lib, &z, "Cool").unwrap();
+        let out = e.work.join("out.zip");
+        let mut seen = Vec::new();
+        e.lib.export_pack_with(&[r.name.clone()], &out, &mut |d, t| seen.push((d, t))).unwrap();
+        assert_eq!(seen, vec![(0, 2), (1, 2), (2, 2)]);
+    }
+
+    #[test]
     fn exported_pack_installs_every_mod() {
         let e = env();
         let za = make_zip(&e.work, "a.zip", &[("archive/pc/mod/a.archive", "A")]);
@@ -2095,6 +2240,9 @@ mod tests {
         assert!(validate_name("console").is_ok());
         assert_eq!(sanitize_name("x. "), "x");
         assert_eq!(sanitize_name("con"), "_con");
+        assert_eq!(sanitize_name(". .overwritten"), "overwritten");
+        assert_eq!(sanitize_name(" . . .hidden"), "hidden");
+        assert_eq!(sanitize_name("state.json.tmp"), "_state.json.tmp");
         assert_eq!(sanitize_name("a:b"), "a_b");
     }
 

@@ -402,4 +402,7 @@ export const pl: Record<MessageKey, string> = {
   "fw.goMods": "Otwórz Mody",
   "fw.willDelete": "Usunięcie {name} usuwa z folderu gry: {paths}. Naciśnij Usuń z gry, aby potwierdzić.",
   "nav.community": "Społeczność",
+  "nexusPage.updatedOn": "Zaktualizowano: {date}",
+  "export.packing": "Pakowanie modów… {percent}%",
+  "modupd.progress": "Aktualizowanie… {percent}",
 };

@@ -32,13 +32,19 @@ fn replace_ci(text: &str, needle: &str, with: &str) -> String {
     out
 }
 
+pub fn redact_tokens(text: &str) -> String {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r#"(?i)([?&](?:key|expires|token|signature|sig|x-amz-signature)=)[^&\s"')>]*"#).expect("valid pattern"));
+    re.replace_all(text, "${1}<hidden>").into_owned()
+}
+
 pub fn scrub_paths(text: &str, home: &str) -> String {
     let home = home.trim_end_matches(['\\', '/']);
     let escaped = home.replace('\\', "\\\\");
     let forward = home.replace('\\', "/");
     let step = replace_ci(text, &escaped, "%USERPROFILE%");
     let step = replace_ci(&step, home, "%USERPROFILE%");
-    replace_ci(&step, &forward, "%USERPROFILE%")
+    redact_tokens(&replace_ci(&step, &forward, "%USERPROFILE%"))
 }
 
 pub fn build_report(input: &ReportInput, home: &str) -> String {
@@ -120,6 +126,12 @@ mod tests {
             mods: vec!["NightCoop 1.2".into()],
             note: String::new(),
         }
+    }
+
+    #[test]
+    fn download_tokens_in_urls_are_hidden() {
+        let t = redact_tokens("GET https://cf-files.nexusmods.com/f.zip?md5=abc&expires=1700000000&key=SECRET_1 failed");
+        assert!(!t.contains("SECRET_1") && !t.contains("1700000000") && t.contains("md5=abc") && t.contains("failed"));
     }
 
     #[test]

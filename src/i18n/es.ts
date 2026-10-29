@@ -402,4 +402,7 @@ export const es: Record<MessageKey, string> = {
   "fw.goMods": "Abrir Mods",
   "fw.willDelete": "Al borrar {name} se quitan de la carpeta del juego: {paths}. Pulsa Borrar del juego para confirmar.",
   "nav.community": "Comunidad",
+  "nexusPage.updatedOn": "Actualizado: {date}",
+  "export.packing": "Empaquetando los mods… {percent} %",
+  "modupd.progress": "Actualizando… {percent}",
 };

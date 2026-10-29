@@ -402,4 +402,7 @@ export const ptBR: Record<MessageKey, string> = {
   "fw.goMods": "Abrir Mods",
   "fw.willDelete": "Apagar {name} remove da pasta do jogo: {paths}. Toque em Apagar do jogo para confirmar.",
   "nav.community": "Comunidade",
+  "nexusPage.updatedOn": "Atualizado em {date}",
+  "export.packing": "Empacotando os mods… {percent}%",
+  "modupd.progress": "Atualizando… {percent}",
 };

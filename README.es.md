@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Un gestor de mods no oficial, hecho por la comunidad, para Cyberpunk 2077 en Windows. Versión 0.0.4 beta.
+Un gestor de mods no oficial, hecho por la comunidad, para Cyberpunk 2077 en Windows. Versión 0.0.5 beta.
 
 No lo hacen ni está afiliado a CD PROJEKT RED, Nexus Mods ni al equipo de NightCoop.
 

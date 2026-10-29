@@ -86,6 +86,10 @@ pub fn validate(p: &Profile) -> Result<(), AppError> {
     if p.mods.is_empty() || p.mods.len() > MAX_MODS {
         return Err(bad("size"));
     }
+    let spoof = |c: char| matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200b}'..='\u{200f}');
+    if p.name.chars().count() > 80 || p.name.chars().any(|c| c.is_control() || spoof(c)) {
+        return Err(bad("name"));
+    }
     for m in &p.mods {
         let version_ok = m.version.chars().count() <= 64 && m.version.chars().all(|c| c.is_ascii_alphanumeric() || " .-+_()".contains(c));
         let ok = match m.source.as_str() {

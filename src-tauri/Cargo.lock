@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "cp2077-mod-launcher"
-version = "0.0.4-beta"
+version = "0.0.5-beta"
 dependencies = [
  "base64 0.23.1",
  "dirs 5.0.1",

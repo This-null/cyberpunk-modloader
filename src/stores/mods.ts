@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { translate } from "../i18n";
 import { ipc, toAppError, type Conflict, type ExternalMod, type ModRecord } from "../lib/ipc";
@@ -20,6 +21,7 @@ interface ModsState {
   images: Record<string, string | null>;
   detail: string | null;
   notice: string | null;
+  exporting: { done: number; total: number } | null;
   skipped: string[];
   ignored: string[];
   clearIgnored: () => void;
@@ -58,6 +60,18 @@ export const useMods = create<ModsState>((set, get) => {
     set({ busy: depth > 0 });
   };
 
+  async function withExport(action: () => Promise<void>) {
+    set({ exporting: { done: 0, total: 0 } });
+    let stop = () => {};
+    try {
+      stop = await listen<{ done: number; total: number }>("export-progress", (e) => set({ exporting: e.payload }));
+      await action();
+    } finally {
+      stop();
+      set({ exporting: null });
+    }
+  }
+
   async function run(action: () => Promise<void>) {
     begin();
     try {
@@ -79,6 +93,7 @@ export const useMods = create<ModsState>((set, get) => {
     images: {},
     detail: null,
     notice: null,
+    exporting: null,
     skipped: [],
     ignored: [],
     clearIgnored: () => set({ ignored: [] }),
@@ -111,22 +126,24 @@ export const useMods = create<ModsState>((set, get) => {
 
     exportOne: (name, dest) =>
       run(async () => {
-        await ipc.exportMod(name, dest);
+        await withExport(() => ipc.exportMod(name, dest));
         set({ notice: dest });
       }),
 
     exportAll: (dest) =>
       run(async () => {
-        await ipc.exportPack(
-          get().mods.map((m) => m.name),
-          dest,
+        await withExport(() =>
+          ipc.exportPack(
+            get().mods.map((m) => m.name),
+            dest,
+          ),
         );
         set({ notice: dest });
       }),
 
     exportSome: (names, dest) =>
       run(async () => {
-        await ipc.exportPack(names, dest);
+        await withExport(() => ipc.exportPack(names, dest));
         set({ notice: dest });
       }),
 

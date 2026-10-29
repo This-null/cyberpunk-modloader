@@ -3,7 +3,7 @@ import clsx from "clsx";
 import { ChevronRight, Download, X } from "lucide-react";
 import { CoverPlaceholder } from "../../brand/CoverPlaceholder";
 import { activeLocale, useLocale, useT, type MessageKey } from "../../i18n";
-import { categoryName, categoryOptions, compactNumber, SORTS, type Sort } from "../../lib/browse";
+import { categoryName, categoryOptions, compactNumber, formatDate, SORTS, type Sort } from "../../lib/browse";
 import { ipc, type NexusCategory, type NexusMod } from "../../lib/ipc";
 import { useIncoming } from "../../stores/incoming";
 import { useNexus } from "../../stores/nexus";
@@ -94,6 +94,9 @@ function Card({
         <p className="line-clamp-1 text-xs text-muted">
           {[mod.author ? t("nexusPage.by", { author: mod.author }) : "", category].filter(Boolean).join(" · ")}
         </p>
+        {mod.updated_timestamp > 0 && (
+          <p className="text-xs text-muted">{t("nexusPage.updatedOn", { date: formatDate(mod.updated_timestamp, locale) })}</p>
+        )}
         <p className="line-clamp-2 text-muted">{summary}</p>
         <div className="mt-auto flex items-center justify-between gap-2 pt-1">
           <span className="text-xs text-muted">
@@ -191,6 +194,7 @@ function DetailPanel({
       <p className="text-xs text-muted">
         {t("nexusPage.downloads", { count: compactNumber(mod.mod_downloads, locale) })} ·{" "}
         {t("nexusPage.endorsements", { count: compactNumber(mod.endorsement_count, locale) })}
+        {mod.updated_timestamp > 0 && ` · ${t("nexusPage.updatedOn", { date: formatDate(mod.updated_timestamp, locale) })}`}
       </p>
       <p className="whitespace-pre-line text-muted">{summary}</p>
       {mod.tags.length > 0 && (

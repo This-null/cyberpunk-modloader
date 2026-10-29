@@ -99,3 +99,12 @@ export function categoryNames(categories: readonly NexusCategory[], id: number):
     .map((i) => categoryName(categories, i))
     .filter((n, i, all) => n !== "" && all.indexOf(n) === i);
 }
+
+export function formatDate(ts: number, locale: string): string {
+  if (!ts) return "";
+  try {
+    return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(ts * 1000));
+  } catch {
+    return "";
+  }
+}

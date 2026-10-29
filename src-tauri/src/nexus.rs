@@ -732,7 +732,7 @@ pub struct SearchPage {
     pub total: u64,
 }
 
-const SEARCH_QUERY: &str = "query($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: Int) { mods(filter: $filter, sort: $sort, offset: $offset, count: $count) { totalCount nodes { modId name summary version author pictureUrl thumbnailUrl downloads endorsements adultContent status modCategory { categoryId } tags { name } } } }";
+const SEARCH_QUERY: &str = "query($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: Int) { mods(filter: $filter, sort: $sort, offset: $offset, count: $count) { totalCount nodes { modId name summary version author pictureUrl thumbnailUrl downloads endorsements updatedAt adultContent status modCategory { categoryId } tags { name } } } }";
 
 fn eq(value: &str) -> serde_json::Value {
     serde_json::json!([{ "value": value, "op": "EQUALS" }])
@@ -800,6 +800,19 @@ pub fn search_body(p: &SearchParams) -> serde_json::Value {
     })
 }
 
+fn iso_to_unix(s: &str) -> u64 {
+    let num = |a: usize, b: usize| s.get(a..b).and_then(|x| x.parse::<i64>().ok());
+    let (Some(y), Some(m), Some(d)) = (num(0, 4), num(5, 7), num(8, 10)) else { return 0 };
+    let (h, mi, sec) = (num(11, 13).unwrap_or(0), num(14, 16).unwrap_or(0), num(17, 19).unwrap_or(0));
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    u64::try_from(days * 86_400 + h * 3600 + mi * 60 + sec).unwrap_or(0)
+}
+
 pub fn parse_search(v: &serde_json::Value) -> Result<SearchPage, AppError> {
     if let Some(errors) = v.get("errors").and_then(|e| e.as_array()).filter(|e| !e.is_empty()) {
         let msg = errors[0].get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
@@ -819,7 +832,7 @@ pub fn parse_search(v: &serde_json::Value) -> Result<SearchPage, AppError> {
                 summary: text(n, "summary"),
                 version: text(n, "version").unwrap_or_default(),
                 picture_url: text(n, "pictureUrl").or_else(|| text(n, "thumbnailUrl")),
-                updated_timestamp: 0,
+                updated_timestamp: text(n, "updatedAt").map(|s| iso_to_unix(&s)).unwrap_or(0),
                 status: text(n, "status").unwrap_or_default(),
                 author: text(n, "author").unwrap_or_default(),
                 category_id: n.pointer("/modCategory/categoryId").and_then(|x| x.as_u64()).unwrap_or(0),
@@ -1285,6 +1298,14 @@ mod tests {
         assert_eq!((list[0].file_id, list[0].file_name.as_str()), (70, "Neon-7-1-2-1700000000.zip"));
         assert_eq!(download_link(&api, KEY, 7, 70).unwrap(), "https://cf-files.nexusmods.com/x.zip");
         assert!(matches!(download_link(&api, KEY, 8, 80), Err(AppError::NexusPremium)));
+    }
+
+    #[test]
+    fn nexus_dates_become_unix_seconds() {
+        assert_eq!(iso_to_unix("1970-01-01T00:00:00Z"), 0);
+        assert_eq!(iso_to_unix("2023-11-14T22:13:20.000Z"), 1_700_000_000);
+        assert_eq!(iso_to_unix("2024-02-29T12:00:00Z"), 1_709_208_000);
+        assert_eq!(iso_to_unix("nonsense"), 0);
     }
 
     #[test]

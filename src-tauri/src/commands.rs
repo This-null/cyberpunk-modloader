@@ -54,7 +54,9 @@ pub struct Prefs {
 }
 
 pub fn write_atomic(path: PathBuf, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
-    let tmp = path.with_extension("tmp");
+    let mut tmp = path.clone().into_os_string();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
     fs::write(&tmp, contents)?;
     fs::rename(&tmp, &path)
 }
@@ -111,7 +113,7 @@ pub fn guard_not_running(running: bool) -> Result<(), AppError> {
 
 fn logged<T>(r: Result<T, AppError>) -> Result<T, AppError> {
     if let Err(e) = &r {
-        tracing::error!("{e}");
+        tracing::error!("{}", crate::report::redact_tokens(&e.to_string()));
     }
     r
 }
@@ -589,7 +591,7 @@ fn mod_folder_name(name: Option<&str>, mod_id: u64) -> String {
         .chars()
         .map(|c| if "\\/:*?\"<>|".contains(c) || c.is_control() { '_' } else { c })
         .collect();
-    let cleaned: String = cleaned.trim().trim_start_matches('.').chars().take(56).collect();
+    let cleaned: String = cleaned.trim().trim_start_matches(['.', ' ']).chars().take(56).collect();
     let cleaned = cleaned.trim().to_string();
     if cleaned.is_empty() {
         format!("Nexus mod {mod_id}")
@@ -1020,6 +1022,7 @@ fn run_nexus_install(
     key: &str,
     mod_id: u64,
     forced: ForcedFile,
+    newest: bool,
 ) -> Result<Vec<String>, AppError> {
     let api = nexus::Api::official();
     let info = nexus::mod_info(&api, key, mod_id)?;
@@ -1034,6 +1037,7 @@ fn run_nexus_install(
         ),
         None => (nexus::choose_file(&files).ok_or_else(|| AppError::NotFound("file".into()))?, None),
     };
+    let newest = newest || nexus::choose_file(&files).is_some_and(|f| f.file_id == file.file_id);
     let zip_name = safe_zip_name(&file.file_name)?;
     let link = nexus::download_link_with(
         &api,
@@ -1079,7 +1083,10 @@ fn run_nexus_install(
         } else {
             rec.description.clone()
         };
-        let version = if rec.version.is_empty() { file.version.clone() } else { rec.version.clone() };
+        let mut version = if rec.version.is_empty() { file.version.clone() } else { rec.version.clone() };
+        if newest && nexus::compare_versions(&version, &info.version) == Some(std::cmp::Ordering::Less) {
+            version = info.version.clone();
+        }
         let cover = info.picture_url.as_deref().and_then(|u| fetch_cover(u, data));
         let saved = lib.set_info(&rec.name, &description, &version, cover.as_deref());
         if let Some(path) = &cover {
@@ -1112,7 +1119,7 @@ pub async fn nexus_install(
 }
 
 fn install_with_fallback(app: &AppHandle, lib: &Library, data: &Path, key: &str, mod_id: u64) -> Result<Vec<String>, AppError> {
-    let first = run_nexus_install(app, lib, data, key, mod_id, None);
+    let first = run_nexus_install(app, lib, data, key, mod_id, None, true);
     if !matches!(first, Err(AppError::NoFiles(_))) {
         return first;
     }
@@ -1120,7 +1127,7 @@ fn install_with_fallback(app: &AppHandle, lib: &Library, data: &Path, key: &str,
     let files = nexus::files(&api, key, mod_id)?;
     let tried = nexus::choose_file(&files).map(|f| f.file_id).unwrap_or(0);
     for id in nexus::fallback_files(&files, tried) {
-        match run_nexus_install(app, lib, data, key, mod_id, Some((id, None))) {
+        match run_nexus_install(app, lib, data, key, mod_id, Some((id, None)), true) {
             Err(AppError::NoFiles(_)) => continue,
             other => return other,
         }
@@ -1151,7 +1158,7 @@ pub async fn nexus_install_file(
     }
     let lib = library(&state)?;
     let data = state.data.clone();
-    let done = tauri::async_runtime::spawn_blocking(move || run_nexus_install(&app, &lib, &data, &key, mod_id, Some((file_id, None))))
+    let done = tauri::async_runtime::spawn_blocking(move || run_nexus_install(&app, &lib, &data, &key, mod_id, Some((file_id, None)), false))
         .await
         .map_err(|e| AppError::Io(e.to_string()))?;
     logged(done)
@@ -1183,6 +1190,7 @@ pub async fn nexus_install_nxm(
             &key,
             checked.mod_id,
             Some((checked.file_id, Some((checked.key, checked.expires)))),
+            false,
         )
     })
     .await
@@ -1316,18 +1324,43 @@ pub fn mod_image(state: State<'_, AppState>, name: String) -> Result<Option<Stri
     library(&state)?.image_data_url(&name)
 }
 
-#[tauri::command]
-pub fn export_mod(state: State<'_, AppState>, name: String, dest: String) -> Result<(), AppError> {
-    logged(library(&state)?.export_mod(&name, Path::new(&dest)))
+fn zip_target(dest: &str) -> Result<(), AppError> {
+    if Path::new(dest).extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
+        Ok(())
+    } else {
+        Err(AppError::InvalidName(dest.chars().take(80).collect()))
+    }
+}
+
+fn export_progress(app: AppHandle) -> impl FnMut(u32, u32) {
+    move |done, total| {
+        let _ = app.emit("export-progress", serde_json::json!({ "done": done, "total": total }));
+    }
 }
 
 #[tauri::command]
-pub fn export_pack(
+pub async fn export_mod(app: AppHandle, state: State<'_, AppState>, name: String, dest: String) -> Result<(), AppError> {
+    zip_target(&dest)?;
+    let lib = library(&state)?;
+    let done = tauri::async_runtime::spawn_blocking(move || lib.export_mod_with(&name, Path::new(&dest), &mut export_progress(app)))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub async fn export_pack(
+    app: AppHandle,
     state: State<'_, AppState>,
     names: Vec<String>,
     dest: String,
 ) -> Result<(), AppError> {
-    logged(library(&state)?.export_pack(&names, Path::new(&dest)))
+    zip_target(&dest)?;
+    let lib = library(&state)?;
+    let done = tauri::async_runtime::spawn_blocking(move || lib.export_pack_with(&names, Path::new(&dest), &mut export_progress(app)))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
 }
 
 #[derive(Serialize)]

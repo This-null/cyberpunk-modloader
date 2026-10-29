@@ -402,4 +402,7 @@ export const tr: Record<MessageKey, string> = {
   "fw.goMods": "Modlar'ı aç",
   "fw.willDelete": "{name} silinince oyun klasöründen şunlar gider: {paths}. Onaylamak için Oyundan sil'e bas.",
   "nav.community": "Topluluk",
+  "nexusPage.updatedOn": "Güncellendi: {date}",
+  "export.packing": "Modlar paketleniyor… %{percent}",
+  "modupd.progress": "Güncelleniyor… {percent}",
 };

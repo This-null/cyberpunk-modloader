@@ -9,7 +9,9 @@ import { kindsOf } from "../../lib/kinds";
 import { ipc } from "../../lib/ipc";
 import { useMods } from "../../stores/mods";
 import { useNexus } from "../../stores/nexus";
+import { percent } from "../../lib/nightcoop";
 import { useModUpdates } from "../../stores/modUpdates";
+import { useNexusBrowse } from "../../stores/nexusBrowse";
 import { useDependents } from "./useDependents";
 
 interface Props {
@@ -52,6 +54,10 @@ export function ModCard({
   const premium = useNexus((s) => s.status?.user?.is_premium ?? false);
   const running = useModUpdates((s) => s.running);
   const updateOne = useModUpdates((s) => s.updateOne);
+  const progress = useNexusBrowse((s) => s.progress);
+  const chain = useNexusBrowse((s) => s.chain);
+  const pct = progress ? percent(progress.done, progress.total) : 0;
+  const updateLabel = chain ? `${Math.min(chain.done + 1, chain.total)}/${chain.total} · ${pct}%` : `${pct}%`;
 
   useEffect(() => {
     void loadImage(mod.name);
@@ -130,7 +136,7 @@ export function ModCard({
               className="btn btn-primary"
             >
               <RefreshCw size={14} className={running === mod.name ? "animate-spin" : undefined} />
-              {running === mod.name ? t("modupd.updating") : t("modupd.update", { version: item.latest })}
+              {running === mod.name ? t("modupd.progress", { percent: updateLabel }) : t("modupd.update", { version: item.latest })}
             </button>
           )}
           <button onClick={() => openDetail(mod.name)} className="btn">

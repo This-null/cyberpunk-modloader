@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Download, X } from "lucide-react";
+import { Download, Package, X } from "lucide-react";
 import { useT } from "../i18n";
 import { ipc, type NxmLink } from "../lib/ipc";
 import { formatSize, percent } from "../lib/nightcoop";
@@ -129,6 +129,24 @@ export function UpdateBanner() {
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+export function ExportBanner() {
+  const t = useT();
+  const progress = useMods((s) => s.exporting);
+  if (!progress) return null;
+  const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+  return (
+    <div className="anim-rise border-b border-accent/40 bg-accent/10 px-4 py-2">
+      <div className="flex items-center gap-3">
+        <Package size={16} className="shrink-0 text-accent" />
+        <span className="min-w-0 flex-1 truncate">{t("export.packing", { percent: pct })}</span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }

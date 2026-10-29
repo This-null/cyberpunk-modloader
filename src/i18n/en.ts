@@ -400,6 +400,9 @@ export const en = {
   "fw.goMods": "Open Mods",
   "fw.willDelete": "Deleting {name} removes these from the game folder: {paths}. Press Delete from game to confirm.",
   "nav.community": "Community",
+  "nexusPage.updatedOn": "Updated {date}",
+  "export.packing": "Packing your mods… {percent}%",
+  "modupd.progress": "Updating… {percent}",
 } as const;
 
 export type MessageKey = keyof typeof en;
