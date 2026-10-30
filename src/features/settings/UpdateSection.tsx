@@ -1,4 +1,5 @@
 import { useT } from "../../i18n";
+import { Download, RefreshCw } from "lucide-react";
 import { useSettings } from "../../stores/settings";
 import { useUpdate } from "../../stores/update";
 import { Segmented } from "./Segmented";
@@ -22,6 +23,7 @@ export function UpdateSection() {
           onClick={() => void check(true)}
           className="btn disabled:opacity-60"
         >
+          <RefreshCw size={15} className={status === "checking" ? "animate-spin" : undefined} />
           {status === "checking" ? t("update.checking") : t("update.check")}
         </button>
         {status === "none" && <span className="text-ok">{t("update.upToDate")}</span>}
@@ -30,6 +32,7 @@ export function UpdateSection() {
           <>
             <span>{t("update.available", { version })}</span>
             <button onClick={() => void install()} className="btn btn-primary">
+              <Download size={15} />
               {t("update.now")}
             </button>
           </>

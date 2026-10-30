@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { Copy, ExternalLink, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import { Copy, ExternalLink, FileText, FolderOpen, RefreshCw, Trash2, X } from "lucide-react";
 import { activeLocale, useLocale, useT } from "../../i18n";
 import { ipc, type LogFile } from "../../lib/ipc";
 import {
@@ -137,7 +137,7 @@ export function LogsScreen() {
     if (done) setFreed(done.freed);
   }
 
-  const chip = "rounded border px-3 py-1.5";
+  const chip = "chip";
   const crashLabel = t("logs.crashBadge");
 
   return (
@@ -156,9 +156,11 @@ export function LogsScreen() {
             <div className="anim-pop flex items-center gap-2">
               <span className="text-muted">{t("logs.clearAsk", { count: files.length, size: formatBytes(total) })}</span>
               <button onClick={() => void wipe()} className="btn btn-danger-solid hover:opacity-90">
+                <Trash2 size={15} />
                 {t("logs.clearYes")}
               </button>
               <button onClick={() => setAsking(false)} className="btn">
+                <X size={15} />
                 {t("action.cancel")}
               </button>
             </div>
@@ -180,6 +182,7 @@ export function LogsScreen() {
               </span>
             </div>
             <button onClick={() => pick(summary.id)} className="btn">
+              <FileText size={15} />
               {t("logs.openLog")}
             </button>
           </div>
@@ -250,7 +253,7 @@ export function LogsScreen() {
                       key={value}
                       onClick={() => setFilter(value)}
                       aria-pressed={filter === value}
-                      className={clsx(chip, filter === value ? "border-accent bg-accent text-accent-ink" : "border-line hover:bg-surface-2")}
+                      className={clsx(chip, filter === value ? "chip-on" : "")}
                     >
                       {label}
                     </button>
@@ -261,13 +264,13 @@ export function LogsScreen() {
                     placeholder={t("logs.search")}
                     className="min-w-40 flex-1 rounded border border-line bg-surface px-3 py-1.5"
                   />
-                  <button onClick={goNext} disabled={counts.error === 0} className={clsx(chip, "border-line hover:bg-surface-2")}>
+                  <button onClick={goNext} disabled={counts.error === 0} className={chip}>
                     {t("logs.nextError")}
                   </button>
                   <button
                     onClick={() => setFollow(!follow)}
                     aria-pressed={follow}
-                    className={clsx(chip, follow ? "border-accent bg-accent text-accent-ink" : "border-line hover:bg-surface-2")}
+                    className={clsx(chip, follow ? "chip-on" : "")}
                   >
                     {t("logs.follow")}
                   </button>

@@ -1,6 +1,6 @@
 import { useTranslated } from "../../lib/translate";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Info, Power, PowerOff, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import clsx from "clsx";
 import { CoverPlaceholder } from "../../brand/CoverPlaceholder";
 import { useT, type MessageKey } from "../../i18n";
@@ -10,6 +10,8 @@ import { ipc } from "../../lib/ipc";
 import { useMods } from "../../stores/mods";
 import { useNexus } from "../../stores/nexus";
 import { percent } from "../../lib/nightcoop";
+import { useGameInfo } from "../../stores/gameInfo";
+import { downloadPageUrl, pickFile } from "../../lib/nexusPage";
 import { useModUpdates } from "../../stores/modUpdates";
 import { useNexusBrowse } from "../../stores/nexusBrowse";
 import { useDependents } from "./useDependents";
@@ -54,10 +56,16 @@ export function ModCard({
   const premium = useNexus((s) => s.status?.user?.is_premium ?? false);
   const running = useModUpdates((s) => s.running);
   const updateOne = useModUpdates((s) => s.updateOne);
+  const patchTime = useGameInfo((s) => s.patchTime);
   const progress = useNexusBrowse((s) => s.progress);
   const chain = useNexusBrowse((s) => s.chain);
   const pct = progress ? percent(progress.done, progress.total) : 0;
   const updateLabel = chain ? `${Math.min(chain.done + 1, chain.total)}/${chain.total} · ${pct}%` : `${pct}%`;
+
+  async function openDownloadPage(modId: number, fallback: string) {
+    const file = await ipc.nexusFiles(modId).then(pickFile).catch(() => null);
+    void ipc.openUrl(file ? downloadPageUrl(modId, file.file_id) : fallback);
+  }
 
   useEffect(() => {
     void loadImage(mod.name);
@@ -126,12 +134,28 @@ export function ModCard({
         <p className="line-clamp-3 text-muted">{description || t("mods.noDescription")}</p>
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
           <button disabled={disabled} onClick={mod.enabled ? onDisable : onEnable} className={clsx("btn", mod.enabled ? "btn-danger" : "btn-ok")}>
+            {mod.enabled ? <PowerOff size={15} /> : <Power size={15} />}
             {mod.enabled ? t("action.disable") : t("action.enable")}
           </button>
+          {item?.updated != null &&
+            patchTime != null &&
+            item.updated < patchTime &&
+            !item.update &&
+            kindsOf(mod.files).some((k) => k === "cet" || k === "redscript" || k === "red4ext") && (
+              <span className="inline-flex items-center gap-1.5 rounded border border-line px-2 py-1 text-xs text-muted" title={t("mods.staleHint")}>
+                <TriangleAlert size={13} />
+                {t("mods.staleChip")}
+              </span>
+            )}
+          {(item?.error === "removed" || item?.error === "not_found") && (
+            <span className="rounded border border-line px-2 py-1 text-xs text-muted" title={t("mods.removedHint")}>
+              {t("mods.removedOnNexus")}
+            </span>
+          )}
           {item?.update && item.latest && (
             <button
               disabled={premium && (disabled || running !== null)}
-              onClick={() => (premium ? void updateOne(mod.name) : void ipc.openUrl(item.page_url))}
+              onClick={() => (premium ? void updateOne(mod.name) : void openDownloadPage(item.mod_id, item.page_url))}
               title={premium ? t("modupd.install") : t("nexus.openOnNexus")}
               className="btn btn-primary"
             >
@@ -140,6 +164,7 @@ export function ModCard({
             </button>
           )}
           <button onClick={() => openDetail(mod.name)} className="btn">
+            <Info size={15} />
             {t("action.details")}
           </button>
           {armed ? (
@@ -152,7 +177,9 @@ export function ModCard({
                 }}
                 className="btn btn-danger-solid"
               >
-                {t("action.uninstall")}
+                <Trash2 size={15} />
+                <Trash2 size={15} />
+              {t("action.uninstall")}
               </button>
               <button onClick={() => setArmed(false)} className="btn">
                 {t("action.cancel")}
@@ -164,6 +191,7 @@ export function ModCard({
               onClick={() => setArmed(true)}
               className="btn btn-danger opacity-80 hover:opacity-100"
             >
+              <Trash2 size={15} />
               {t("action.uninstall")}
             </button>
           )}

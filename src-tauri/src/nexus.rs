@@ -18,6 +18,17 @@ pub const API_BASE: &str = "https://api.nexusmods.com/";
 pub const GAME: &str = "cyberpunk2077";
 pub const APP_NAME: &str = "CP2077-Mod-Launcher";
 pub const CHECK_TTL_SECS: u64 = 6 * 60 * 60;
+const UPDATE_RECHECK_SECS: u64 = 15 * 60;
+
+fn is_gone(status: &str) -> bool {
+    matches!(status.to_ascii_lowercase().as_str(), "removed" | "hidden" | "wastebinned" | "not_published")
+}
+
+fn mark_gone(cache: &mut Cache, id: u64, now: u64) {
+    let mut info = cache.get(&id).map(|e| e.info.clone()).unwrap_or_default();
+    info.status = "removed".into();
+    cache.insert(id, CacheEntry { checked_at: now, info });
+}
 const MAX_BODY: u64 = 1024 * 1024;
 
 #[derive(Clone)]
@@ -150,6 +161,7 @@ pub struct Status {
     pub latest: Option<String>,
     pub update: bool,
     pub checked_at: Option<u64>,
+    pub updated: Option<u64>,
     pub page_url: String,
     pub error: Option<String>,
 }
@@ -313,9 +325,12 @@ pub fn check_all(
     ttl: u64,
 ) -> Result<Vec<Status>, AppError> {
     let mut stop = false;
+    let mut key_ok: Option<bool> = None;
     let mut failures: BTreeMap<u64, String> = BTreeMap::new();
     for rec in records {
         let Some(id) = rec.nexus_id else { continue };
+        let waiting = cache.get(&id).is_some_and(|e| update_available(&rec.version, &e.info.version));
+        let ttl = if waiting { ttl.min(UPDATE_RECHECK_SECS) } else { ttl };
         if !needs_refresh(cache.get(&id), now, ttl) || failures.contains_key(&id) {
             continue;
         }
@@ -327,13 +342,20 @@ pub fn check_all(
             Ok(info) => {
                 cache.insert(id, CacheEntry { checked_at: now, info });
             }
-            Err(AppError::NexusKey) => return Err(AppError::NexusKey),
+            Err(AppError::NexusKey) => {
+                if !*key_ok.get_or_insert_with(|| validate(api, key).is_ok()) {
+                    return Err(AppError::NexusKey);
+                }
+                failures.insert(id, "removed".into());
+                mark_gone(cache, id, now);
+            }
             Err(AppError::RateLimited) => {
                 stop = true;
                 failures.insert(id, "rate_limited".into());
             }
             Err(AppError::NotFound(_)) => {
                 failures.insert(id, "not_found".into());
+                mark_gone(cache, id, now);
             }
             Err(_) => {
                 failures.insert(id, "network".into());
@@ -346,9 +368,12 @@ pub fn check_all(
             let id = rec.nexus_id?;
             let entry = cache.get(&id);
             let latest = entry.map(|e| e.info.version.clone()).filter(|v| !v.is_empty());
-            let update = latest
-                .as_deref()
-                .is_some_and(|l| !rec.version.is_empty() && update_available(&rec.version, l));
+            let gone = failures.get(&id).is_some_and(|f| f == "removed" || f == "not_found")
+                || entry.is_some_and(|e| is_gone(&e.info.status));
+            let update = !gone
+                && latest
+                    .as_deref()
+                    .is_some_and(|l| !rec.version.is_empty() && update_available(&rec.version, l));
             Some(Status {
                 name: rec.name.clone(),
                 mod_id: id,
@@ -356,8 +381,9 @@ pub fn check_all(
                 latest,
                 update,
                 checked_at: entry.map(|e| e.checked_at),
+                updated: entry.map(|e| e.info.updated_timestamp).filter(|t| *t > 0),
                 page_url: page_url(id),
-                error: failures.get(&id).cloned(),
+                error: failures.get(&id).cloned().or_else(|| gone.then(|| "removed".to_string())),
             })
         })
         .collect())
@@ -412,8 +438,18 @@ pub struct FileInfo {
     pub uploaded_timestamp: u64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct FileUpdate {
+    #[serde(default, deserialize_with = "lenient_u64")]
+    old_file_id: u64,
+    #[serde(default, deserialize_with = "lenient_u64")]
+    new_file_id: u64,
+}
+
 #[derive(Deserialize)]
 struct FilesReply {
+    #[serde(default)]
+    file_updates: Vec<FileUpdate>,
     #[serde(default)]
     files: Vec<FileInfo>,
 }
@@ -464,8 +500,29 @@ pub fn list(api: &Api, key: &str, kind: &str) -> Result<Vec<ModInfo>, AppError> 
 }
 
 pub fn files(api: &Api, key: &str, mod_id: u64) -> Result<Vec<FileInfo>, AppError> {
+    Ok(files_with_lines(api, key, mod_id)?.0)
+}
+
+pub fn files_with_lines(api: &Api, key: &str, mod_id: u64) -> Result<(Vec<FileInfo>, Vec<(u64, u64)>), AppError> {
     let reply: FilesReply = get(api, key, &format!("v1/games/{GAME}/mods/{mod_id}/files.json"))?;
-    Ok(reply.files)
+    let links = reply.file_updates.iter().filter(|u| u.old_file_id > 0 && u.new_file_id > 0).map(|u| (u.old_file_id, u.new_file_id)).collect();
+    Ok((reply.files, links))
+}
+
+pub fn file_line(file_id: u64, links: &[(u64, u64)]) -> Vec<u64> {
+    let mut line = vec![file_id];
+    loop {
+        let before = line.len();
+        for (old, new) in links {
+            if line.contains(old) != line.contains(new) {
+                line.push(if line.contains(old) { *new } else { *old });
+            }
+        }
+        if line.len() == before {
+            line.sort_unstable();
+            return line;
+        }
+    }
 }
 
 pub fn choose_file(files: &[FileInfo]) -> Option<&FileInfo> {
@@ -1212,9 +1269,9 @@ mod tests {
         assert_eq!(out[0].checked_at, Some(5000));
         assert_eq!(out[0].page_url, "https://www.nexusmods.com/cyberpunk2077/mods/10");
         assert_eq!(hits.load(AtomicOrdering::SeqCst), 1);
-        check_all(&api, KEY, &records, &mut cache, 5000 + CHECK_TTL_SECS - 1, CHECK_TTL_SECS).unwrap();
+        check_all(&api, KEY, &records, &mut cache, 5000 + UPDATE_RECHECK_SECS - 1, CHECK_TTL_SECS).unwrap();
         assert_eq!(hits.load(AtomicOrdering::SeqCst), 1);
-        check_all(&api, KEY, &records, &mut cache, 5000 + CHECK_TTL_SECS, CHECK_TTL_SECS).unwrap();
+        check_all(&api, KEY, &records, &mut cache, 5000 + UPDATE_RECHECK_SECS, CHECK_TTL_SECS).unwrap();
         assert_eq!(hits.load(AtomicOrdering::SeqCst), 2);
     }
 
@@ -1227,6 +1284,46 @@ mod tests {
         let out = check_all(&api, KEY, &records, &mut cache, 1, 60).unwrap();
         assert_eq!(out[0].error.as_deref(), Some("not_found"));
         assert!(out[1].update && out[1].error.is_none());
+    }
+
+    #[test]
+    fn a_file_line_follows_its_updates_but_not_other_files() {
+        let links = [(1, 2), (2, 3), (10, 11)];
+        assert_eq!(file_line(2, &links), vec![1, 2, 3]);
+        assert_eq!(file_line(10, &links), vec![10, 11]);
+        assert_eq!(file_line(7, &links), vec![7]);
+    }
+
+    #[test]
+    fn a_mod_nexus_hides_is_marked_removed_while_a_bad_key_still_aborts() {
+        let api = serve(|path, _| match path {
+            "/v1/users/validate.json" => (200, vec![], r#"{"user_id":1,"name":"n","is_premium":false,"is_supporter":false,"email":"x@y"}"#.into()),
+            "/v1/games/cyberpunk2077/mods/20.json" => (403, vec![], "{}".into()),
+            _ => (200, vec![], r#"{"mod_id":10,"name":"a","version":"2.0.0"}"#.into()),
+        });
+        let records = vec![rec("hidden", "1", Some(20)), rec("ok", "1.0.0", Some(10))];
+        let mut cache = Cache::new();
+        cache.insert(20, CacheEntry { checked_at: 0, info: ModInfo { version: "2".into(), ..ModInfo::default() } });
+        let out = check_all(&api, KEY, &records, &mut cache, 100_000, 60).unwrap();
+        assert_eq!(out[0].error.as_deref(), Some("removed"));
+        assert!(!out[0].update);
+        assert!(out[1].update);
+    }
+
+    #[test]
+    fn a_removed_status_hides_the_update_and_a_pending_update_is_rechecked_sooner() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let api = counting_api(hits.clone());
+        let mut cache = Cache::new();
+        cache.insert(10, CacheEntry { checked_at: 1000, info: ModInfo { version: "9.0".into(), status: "hidden".into(), ..ModInfo::default() } });
+        let out = check_all(&api, KEY, &[rec("a", "1.0.0", Some(10))], &mut cache, 1001, CHECK_TTL_SECS).unwrap();
+        assert!(!out[0].update && out[0].error.as_deref() == Some("removed"));
+        assert_eq!(hits.load(AtomicOrdering::SeqCst), 0);
+
+        let mut cache = Cache::new();
+        cache.insert(10, CacheEntry { checked_at: 1000, info: ModInfo { version: "9.0".into(), status: "published".into(), ..ModInfo::default() } });
+        check_all(&api, KEY, &[rec("a", "1.0.0", Some(10))], &mut cache, 1000 + UPDATE_RECHECK_SECS, CHECK_TTL_SECS).unwrap();
+        assert_eq!(hits.load(AtomicOrdering::SeqCst), 1);
     }
 
     #[test]

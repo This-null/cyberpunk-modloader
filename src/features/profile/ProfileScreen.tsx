@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { Check, Copy, FileInput, KeyRound, Settings2, Share2, X } from "lucide-react";
 import { useT } from "../../i18n";
 import { ipc, type SharedEntry } from "../../lib/ipc";
 import { useMods } from "../../stores/mods";
@@ -75,12 +75,13 @@ export function ProfileScreen() {
                 onClick={() => void ipc.resetInstallId().then((v) => { setId(v); setConfirm(false); })}
                 className="btn btn-danger-solid"
               >
+                <KeyRound size={15} />
                 {t("pview.confirmReset")}
               </button>
-              <button onClick={() => setConfirm(false)} className={btn}>{t("action.cancel")}</button>
+              <button onClick={() => setConfirm(false)} className={btn}><X size={15} />{t("action.cancel")}</button>
             </>
           ) : (
-            <button onClick={() => setConfirm(true)} className={btn}>{t("pview.resetId")}</button>
+            <button onClick={() => setConfirm(true)} className={btn}><KeyRound size={15} />{t("pview.resetId")}</button>
           )}
         </div>
         <p className="text-xs text-muted">{t("pview.idHint")}</p>
@@ -89,7 +90,7 @@ export function ProfileScreen() {
       <section className={card}>
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">{t("pview.presets")}</h2>
-          <button onClick={() => void useMyPresets.getState().show()} className={btn}>{t("pview.manage")}</button>
+          <button onClick={() => void useMyPresets.getState().show()} className={btn}><Settings2 size={15} />{t("pview.manage")}</button>
         </div>
         {presets.length === 0 ? (
           <p className="text-muted">{t("presets.empty")}</p>
@@ -114,9 +115,10 @@ export function ProfileScreen() {
               onClick={() => void useProfile.getState().open("share", mods.map((m) => m.name))}
               className={btn}
             >
+              <Share2 size={15} />
               {t("profile.share")}
             </button>
-            <button onClick={() => void useProfile.getState().open("import", [])} className={btn}>{t("profile.import")}</button>
+            <button onClick={() => void useProfile.getState().open("import", [])} className={btn}><FileInput size={15} />{t("profile.import")}</button>
           </div>
         </div>
         {shares.length === 0 ? (

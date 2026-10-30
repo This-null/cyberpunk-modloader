@@ -59,7 +59,7 @@ export function ProfileDialog({ names }: { names: string[] }) {
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/55 p-6 anim-fade" role="dialog" aria-modal="true">
-      <div className="anim-pop flex max-h-full w-full max-w-xl flex-col gap-4 overflow-auto rounded-lg border border-line bg-surface p-6">
+      <div className="anim-pop flex max-h-[calc(100vh-3rem)] w-full max-w-xl flex-col gap-4 overflow-auto rounded-lg border border-line bg-surface p-6">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">{mode === "share" ? t("profile.shareTitle") : t("profile.importTitle")}</h2>
           <button onClick={close} className="text-muted hover:text-ink">{t("action.close")}</button>

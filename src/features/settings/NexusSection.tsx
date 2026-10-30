@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ExternalLink, Link2, Unplug } from "lucide-react";
 import { useT } from "../../i18n";
 import { ipc } from "../../lib/ipc";
 import { NEXUS_DEV, NEXUS_PASTE_KEY } from "../../lib/flags";
@@ -33,6 +34,7 @@ export function NexusSection() {
             <span className="rounded border border-line px-1.5 py-0.5 text-xs text-muted">{t("nexus.supporter")}</span>
           )}
           <button onClick={() => void disconnect()} className="btn">
+            <Unplug size={15} />
             {t("nexus.disconnect")}
           </button>
           {NEXUS_DEV && (
@@ -69,6 +71,7 @@ export function NexusSection() {
                   onClick={() => void ipc.openUrl("https://www.nexusmods.com/users/myaccount?tab=api")}
                   className="btn"
                 >
+                  <ExternalLink size={15} />
                   {t("nexus.openPage")}
                 </button>
               </div>
@@ -91,6 +94,7 @@ export function NexusSection() {
                   onClick={() => void submit()}
                   className="btn btn-primary"
                 >
+                  <Link2 size={15} />
                   {connecting ? t("nexus.connecting") : t("nexus.connect")}
                 </button>
               </div>

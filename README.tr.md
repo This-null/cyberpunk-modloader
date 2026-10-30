@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Windows için Cyberpunk 2077'ye yönelik resmi olmayan bir topluluk mod yöneticisi. Sürüm 0.0.5 beta.
+Windows için Cyberpunk 2077'ye yönelik resmi olmayan bir topluluk mod yöneticisi. Sürüm 0.0.6 beta.
 
 CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlarla bağlantılı değildir.
 
@@ -20,6 +20,7 @@ CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlar
 - İngilizce, Türkçe, Rusça, İspanyolca, Brezilya Portekizcesi, Fransızca, Lehçe ve Almanca konuşur.
 - Sistem, koyu ve açık tema vardır.
 - FOMOD modlarını seçenek penceresiyle kurar, CET, RED4ext, ArchiveXL gibi çatı modları kontrol eder, Premium hesapta modları günceller. Soru ya da fikrin mi var? [Discord](https://discord.gg/EaNcFyCEqP) sunucumuza gel.
+- Hangi modun hangi modun dosyalarının üzerine yazdığını gösterir, güncellenen modun bir önceki sürümünü geri almak için saklar, mod listesini süzer, modları kendi başlıkların altında gruplar ve oyunu yan menüden başlatır.
 
 ## Kurulum
 

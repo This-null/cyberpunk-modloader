@@ -12,7 +12,7 @@ export function ConflictDialog() {
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/55 p-6 anim-fade" role="dialog" aria-modal="true">
-      <div className="anim-pop flex max-h-full w-full max-w-lg flex-col gap-4 overflow-hidden rounded-lg border border-line bg-surface p-6">
+      <div className="anim-pop flex max-h-[calc(100vh-3rem)] w-full max-w-lg flex-col gap-4 overflow-hidden rounded-lg border border-line bg-surface p-6">
         <h2 className="text-lg font-semibold">{t("conflict.title")}</h2>
         <p>{t("conflict.body", { mod: pending.name })}</p>
         <ul className="max-h-56 overflow-auto rounded bg-surface-2 p-3 text-xs">

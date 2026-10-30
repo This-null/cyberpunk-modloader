@@ -70,7 +70,7 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
   list_mods: () => library,
   scan_external: () => [],
   mod_image: () => null,
-  app_info: () => ({ version: "0.0.5-beta", data_dir: "C:\\Users\\you\\AppData\\Roaming\\com.skydev.cp2077modlauncher" }),
+  app_info: () => ({ version: "0.0.6-beta", data_dir: "C:\\Users\\you\\AppData\\Roaming\\com.skydev.cp2077modlauncher" }),
   nc_fetch: () => ({ updated: "", latest: "0.1.1-beta.2", offline: false, releases: [] }),
   nc_detect: () => null,
   nexus_status: () => ({ connected: true, user: { name: "Ayse", is_premium: true, is_supporter: false } }),
@@ -113,8 +113,8 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
           name: "Style",
           order: "Explicit",
           groups: [
-            { name: "Color", kind: "SelectExactlyOne", order: "Explicit", plugins: [{ name: "Red", description: "The red variant." }, { name: "Blue", description: "The blue variant." }] },
-            { name: "Extras", kind: "SelectAny", order: "Explicit", plugins: [{ name: "Hat", description: "Adds a hat." }] },
+            { name: "Color", kind: "SelectExactlyOne", order: "Explicit", plugins: [{ name: "Red", description: "The red variant.", image: "" }, { name: "Blue", description: "The blue variant.", image: "" }] },
+            { name: "Extras", kind: "SelectAny", order: "Explicit", plugins: [{ name: "Hat", description: "Adds a hat.", image: "" }] },
           ],
         },
       ],
@@ -125,6 +125,11 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
   fomod_install: () => ({ added: [], skipped: [], ignored: [] }),
   framework_plan: () => ["red4ext/", "bin/x64/winmm.dll"],
   framework_remove: () => 1,
+  game_version: () => "2.31.0.0",
+  game_patch_time: () => 1_761_000_000,
+  fomod_image: () => null,
+  mod_health: () => [],
+  launch_game: () => undefined,
   framework_status: () => ({
     frameworks: [
       { id: "cet", present: true, version: "1.33.0" },

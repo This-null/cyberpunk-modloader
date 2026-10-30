@@ -35,6 +35,20 @@ export function App() {
     applyTheme(theme);
   }, [theme]);
 
+  useEffect(() => {
+    const pages = ["mods", "nexus", "profile", "logs", "settings"] as const;
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= pages.length) {
+        e.preventDefault();
+        setPage(pages[n - 1]);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setPage]);
+
   useIncomingEvents();
   const updates = useSettings((s) => s.updates);
 

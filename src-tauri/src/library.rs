@@ -53,6 +53,14 @@ impl Default for Limits {
     }
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Health {
+    pub name: String,
+    pub enabled: bool,
+    pub missing_installed: Vec<String>,
+    pub missing_library: u32,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Backup {
     pub file: String,
@@ -77,7 +85,15 @@ pub struct ModRecord {
     #[serde(default)]
     pub nexus_id: Option<u64>,
     #[serde(default)]
+    pub nexus_chain: Vec<u64>,
+    #[serde(default)]
     pub backups: Vec<Backup>,
+}
+
+const PREVIOUS: &str = " (previous)";
+
+fn same_file_line(a: &ModRecord, b: &ModRecord) -> bool {
+    a.nexus_chain.is_empty() || b.nexus_chain.is_empty() || a.nexus_chain.iter().any(|f| b.nexus_chain.contains(f))
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -250,7 +266,19 @@ fn plan_single(
             return Err(AppError::Unmappable(first.clone()));
         }
         let seen: Vec<&str> = list.iter().map(|(_, rel, _)| rel.as_str()).take(6).collect();
-        return Err(AppError::NoFiles(seen.join(", ")));
+        let note = list
+            .iter()
+            .find(|(_, rel, size)| {
+                let lower = rel.to_ascii_lowercase();
+                *size > 0 && *size <= 4096 && [".txt", ".md", ".nfo"].iter().any(|e| lower.ends_with(e))
+            })
+            .and_then(|(i, _, _)| read_bytes(archive, *i, 4096).ok())
+            .map(|b| String::from_utf8_lossy(&b).trim().chars().take(700).collect::<String>())
+            .filter(|t| !t.is_empty());
+        return Err(AppError::NoFiles(match note {
+            Some(text) => format!("{}\n---\n{text}", seen.join(", ")),
+            None => seen.join(", "),
+        }));
     }
     IGNORED.lock().unwrap_or_else(|e| e.into_inner()).extend(ignored);
 
@@ -382,6 +410,28 @@ impl Library {
 
     pub fn list(&self) -> Result<Vec<ModRecord>, AppError> {
         self.load()
+    }
+
+    pub fn health(&self) -> Result<Vec<Health>, AppError> {
+        let records = self.load()?;
+        let mut out = Vec::new();
+        for r in &records {
+            let missing_installed: Vec<String> = if r.enabled {
+                r.installed_files
+                    .iter()
+                    .filter(|f| !f.to_ascii_lowercase().ends_with(".log") && !self.game.join(f).is_file())
+                    .take(200)
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let missing_library = r.files.iter().filter(|f| !self.root.join(&r.name).join(f).is_file()).count() as u32;
+            if !missing_installed.is_empty() || missing_library > 0 {
+                out.push(Health { name: r.name.clone(), enabled: r.enabled, missing_installed, missing_library });
+            }
+        }
+        Ok(out)
     }
 
     pub fn game_dir(&self) -> &Path {
@@ -800,6 +850,17 @@ impl Library {
         Ok(out)
     }
 
+    pub fn set_nexus_chain(&self, name: &str, chain: Vec<u64>) -> Result<(), AppError> {
+        let _g = lock();
+        let mut records = self.load()?;
+        let rec = records
+            .iter_mut()
+            .find(|r| r.name == name)
+            .ok_or_else(|| AppError::NotFound(name.to_string()))?;
+        rec.nexus_chain = chain;
+        self.save(&records)
+    }
+
     pub fn tag_record(&self, name: &str, source: &str, version: &str, description: &str) -> Result<(), AppError> {
         let _g = lock();
         let mut records = self.load()?;
@@ -827,7 +888,7 @@ impl Library {
         }
         let same_mod = |r: &ModRecord| {
             let tagged = target.source.is_some() && r.source == target.source;
-            let nexus = target.nexus_id.is_some_and(|id| id > 0) && r.nexus_id == target.nexus_id;
+            let nexus = target.nexus_id.is_some_and(|id| id > 0) && r.nexus_id == target.nexus_id && same_file_line(r, target);
             tagged || nexus
         };
         let others: Vec<String> = records
@@ -925,6 +986,7 @@ impl Library {
                         r.enabled
                             && &r.name != name
                             && r.nexus_id == target.nexus_id
+                            && same_file_line(r, target)
                             && same_mod_name(&r.name, name)
                             && matches!(
                                 crate::nexus::compare_versions(&r.version, &target.version),
@@ -933,13 +995,30 @@ impl Library {
                     })
                     .map(|r| r.name.clone())
                     .collect();
-                records.iter().any(|r| r.enabled && &r.name != name && r.nexus_id == target.nexus_id)
+                records.iter().any(|r| r.enabled && &r.name != name && r.nexus_id == target.nexus_id && same_file_line(r, target))
             });
             if wanted && self.activate_exclusive(name, false).is_ok() {
                 replaced.push(name.clone());
+                let records = self.load().unwrap_or_default();
+                let Some(fresh) = records.iter().find(|r| &r.name == name).cloned() else { continue };
+                for stale in records.iter().filter(|r| {
+                    r.name.ends_with(PREVIOUS) && !r.enabled && r.nexus_id == fresh.nexus_id && same_file_line(r, &fresh) && !outgoing.contains(&r.name)
+                }) {
+                    let _ = self.uninstall(&stale.name);
+                }
                 let mut current = name.clone();
                 for old in &outgoing {
-                    if self.uninstall(old).is_ok() && self.rename(&current, old).is_ok() && self.load().is_ok_and(|r| r.iter().any(|x| &x.name == old)) {
+                    let older = records
+                        .iter()
+                        .find(|r| &r.name == old)
+                        .is_some_and(|r| crate::nexus::compare_versions(&r.version, &fresh.version) == Some(std::cmp::Ordering::Less));
+                    let freed = if older {
+                        let keep = format!("{}{PREVIOUS}", old.chars().take(48).collect::<String>());
+                        self.rename(old, &keep).is_ok() && self.load().is_ok_and(|r| r.iter().any(|x| x.name == keep))
+                    } else {
+                        self.uninstall(old).is_ok()
+                    };
+                    if freed && self.rename(&current, old).is_ok() && self.load().is_ok_and(|r| r.iter().any(|x| &x.name == old)) {
                         current = old.clone();
                     }
                 }
@@ -1297,6 +1376,13 @@ mod tests {
         let e = env();
         let notes = make_zip(&e.work, "n.zip", &[("PlaceholderMod.txt", "x"), ("guide.pdf", "x")]);
         assert!(matches!(e.lib.install_any(&notes, "n"), Err(AppError::NoFiles(_))));
+        let moved = make_zip(&e.work, "m.zip", &[("PlaceholderMod.txt", "Use the new one: https://www.nexusmods.com/cyberpunk2077/mods/5266")]);
+        match e.lib.install_any(&moved, "m") {
+            Err(AppError::NoFiles(msg)) => assert!(msg.contains("
+---
+") && msg.contains("mods/5266")),
+            other => panic!("expected NoFiles with the author's note, got {other:?}"),
+        }
         let fomod = make_zip(&e.work, "f.zip", &[("fomod/ModuleConfig.xml", "<x/>"), ("Option A/archive/pc/mod/a.archive", "x")]);
         assert!(matches!(e.lib.install_any(&fomod, "f"), Err(AppError::Fomod)));
     }
@@ -1374,31 +1460,34 @@ mod tests {
     }
 
     #[test]
-    fn an_update_removes_the_older_version_but_an_old_install_keeps_the_newer_one_disabled() {
+    fn an_update_keeps_one_previous_version_to_roll_back_to_and_drops_older_ones() {
         let e = env();
-        let v1 = make_zip(&e.work, "v1.zip", &[("archive/pc/mod/a.archive", "1")]);
-        let v2 = make_zip(&e.work, "v2.zip", &[("archive/pc/mod/a.archive", "2")]);
-        let a = inst(&e.lib, &v1, "Cool").unwrap();
-        e.lib.set_nexus_id(&a.name, Some(3)).unwrap();
-        e.lib.set_info(&a.name, "", "1.0", None).unwrap();
+        let zip = |n: &str, body: &str| make_zip(&e.work, n, &[("archive/pc/mod/a.archive", body)]);
+        let versioned = |file: &str, body: &str, ver: &str| {
+            let r = inst(&e.lib, &zip(file, body), "Cool").unwrap();
+            e.lib.set_nexus_id(&r.name, Some(3)).unwrap();
+            e.lib.set_info(&r.name, "", ver, None).unwrap();
+            r
+        };
+        let a = versioned("v1.zip", "1", "1.0");
         e.lib.enable(&a.name, false).unwrap();
-        let b = inst(&e.lib, &v2, "Cool").unwrap();
-        e.lib.set_nexus_id(&b.name, Some(3)).unwrap();
-        e.lib.set_info(&b.name, "", "2.0", None).unwrap();
+        let b = versioned("v2.zip", "2", "2.0");
         assert_eq!(e.lib.replace_older(&[b.name.clone()]), vec![b.name.clone()]);
-        let names: Vec<_> = e.lib.list().unwrap().into_iter().map(|r| r.name).collect();
-        assert_eq!(names, vec!["Cool".to_string()]);
-        assert_eq!(e.lib.list().unwrap()[0].version, "2.0");
+        let list = e.lib.list().unwrap();
+        let now = list.iter().find(|r| r.name == "Cool").unwrap();
+        let prev = list.iter().find(|r| r.name == "Cool (previous)").unwrap();
+        assert_eq!((now.version.as_str(), now.enabled, prev.version.as_str(), prev.enabled), ("2.0", true, "1.0", false));
         assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/a.archive")).unwrap(), "2");
 
-        let old = inst(&e.lib, &v1, "Cool").unwrap();
-        e.lib.set_nexus_id(&old.name, Some(3)).unwrap();
-        e.lib.set_info(&old.name, "", "1.0", None).unwrap();
-        e.lib.replace_older(&[old.name.clone()]);
+        let c = versioned("v3.zip", "3", "3.0");
+        e.lib.replace_older(&[c.name.clone()]);
         let list = e.lib.list().unwrap();
         assert_eq!(list.len(), 2);
-        assert_eq!(list.iter().find(|r| r.enabled).unwrap().version, "1.0");
-        assert_eq!(list.iter().find(|r| !r.enabled).unwrap().version, "2.0");
+        assert_eq!(list.iter().find(|r| r.name == "Cool").unwrap().version, "3.0");
+        assert_eq!(list.iter().find(|r| r.name == "Cool (previous)").unwrap().version, "2.0");
+
+        e.lib.activate_exclusive("Cool (previous)", false).unwrap();
+        assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/a.archive")).unwrap(), "2");
     }
 
     #[test]
@@ -1416,12 +1505,55 @@ mod tests {
         e.lib.set_info(&b.name, "", "2.0", None).unwrap();
         e.lib.replace_older(&[b.name.clone()]);
         let list = e.lib.list().unwrap();
-        assert_eq!(list.len(), 1);
-        assert_eq!((list[0].name.as_str(), list[0].version.as_str(), list[0].enabled), ("Codeware", "2.0", true));
+        assert_eq!(list.len(), 2);
+        let now = list.iter().find(|r| r.name == "Codeware").unwrap();
+        assert_eq!((now.version.as_str(), now.enabled), ("2.0", true));
+        assert!(list.iter().any(|r| r.name == "Codeware (previous)" && !r.enabled));
         assert!(e.lib.root.join("Codeware").is_dir() && !e.lib.root.join("Codeware (2)").exists());
         e.lib.disable("Codeware").unwrap();
         e.lib.enable("Codeware", false).unwrap();
         assert_eq!(fs::read_to_string(e.game.join("archive/pc/mod/a.archive")).unwrap(), "2");
+    }
+
+    #[test]
+    fn different_files_of_one_nexus_mod_stay_enabled_together_but_versions_of_a_file_swap() {
+        let e = env();
+        let main1 = make_zip(&e.work, "m1.zip", &[("archive/pc/mod/main.archive", "1")]);
+        let opt = make_zip(&e.work, "o.zip", &[("archive/pc/mod/opt.archive", "o")]);
+        let main2 = make_zip(&e.work, "m2.zip", &[("archive/pc/mod/main.archive", "2")]);
+        let a = inst(&e.lib, &main1, "Pack").unwrap();
+        let b = inst(&e.lib, &opt, "Pack").unwrap();
+        let c = inst(&e.lib, &main2, "Pack").unwrap();
+        for (r, chain) in [(&a, vec![1, 2]), (&b, vec![50]), (&c, vec![1, 2, 3])] {
+            e.lib.set_nexus_id(&r.name, Some(9)).unwrap();
+            e.lib.set_nexus_chain(&r.name, chain).unwrap();
+        }
+        e.lib.activate_exclusive(&a.name, false).unwrap();
+        e.lib.activate_exclusive(&b.name, false).unwrap();
+        assert!(e.lib.list().unwrap().iter().all(|r| r.name == c.name || r.enabled));
+        e.lib.activate_exclusive(&c.name, true).unwrap();
+        let list = e.lib.list().unwrap();
+        assert!(list.iter().find(|r| r.name == b.name).unwrap().enabled);
+        assert!(!list.iter().find(|r| r.name == a.name).unwrap().enabled);
+        assert!(list.iter().find(|r| r.name == c.name).unwrap().enabled);
+    }
+
+    #[test]
+    fn health_reports_files_that_vanished_from_the_game_or_the_library() {
+        let e = env();
+        let z = make_zip(&e.work, "h.zip", &[("archive/pc/mod/a.archive", "1"), ("archive/pc/mod/b.archive", "2"), ("bin/x64/plugins/cyber_engine_tweaks/mods/H/H.log", "log")]);
+        let r = inst(&e.lib, &z, "Healthy").unwrap();
+        e.lib.enable(&r.name, false).unwrap();
+        assert!(e.lib.health().unwrap().is_empty());
+        fs::remove_file(e.game.join("bin/x64/plugins/cyber_engine_tweaks/mods/H/H.log")).unwrap();
+        assert!(e.lib.health().unwrap().is_empty());
+        fs::remove_file(e.game.join("archive/pc/mod/a.archive")).unwrap();
+        let h = e.lib.health().unwrap();
+        assert_eq!((h.len(), h[0].missing_installed.clone(), h[0].missing_library), (1, vec!["archive/pc/mod/a.archive".to_string()], 0));
+        e.lib.disable(&r.name).unwrap();
+        fs::remove_file(e.lib.root.join(&r.name).join("archive/pc/mod/b.archive")).unwrap();
+        let h = e.lib.health().unwrap();
+        assert_eq!((h[0].enabled, h[0].missing_installed.len(), h[0].missing_library), (false, 0, 1));
     }
 
     #[test]

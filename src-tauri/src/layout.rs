@@ -146,6 +146,11 @@ fn map_extra(raw: &str, mod_name: &str, cet: &[Vec<String>]) -> Option<PathBuf> 
     None
 }
 
+fn is_shortcut(raw: &str) -> bool {
+    let lower = raw.to_ascii_lowercase();
+    lower.ends_with(".url") || lower.ends_with(".lnk")
+}
+
 pub fn map_all(rels: &[&str], mod_name: &str) -> Result<(Vec<Option<PathBuf>>, Vec<String>), AppError> {
     if rels.iter().any(|r| r.replace('\\', "/").to_ascii_lowercase().ends_with("fomod/moduleconfig.xml")) {
         return Err(AppError::Fomod);
@@ -161,6 +166,10 @@ pub fn map_all(rels: &[&str], mod_name: &str) -> Result<(Vec<Option<PathBuf>>, V
                     ignored.push(r.to_string());
                     out.push(None);
                 }
+            },
+            Ok(None) if !r.replace('\\', "/").ends_with('/') && !is_shortcut(r) => match map_extra(r, mod_name, &cet) {
+                Some(p) if p.starts_with("bin/x64/plugins/cyber_engine_tweaks") => out.push(Some(p)),
+                _ => out.push(None),
             },
             other => out.push(other?),
         }
@@ -361,6 +370,15 @@ mod tests {
         }
         assert!(map_entry("archive/pc/mod/console.archive", "m").unwrap().is_some());
         assert!(map_entry("archive/pc/mod/com10.archive", "m").unwrap().is_some());
+    }
+
+    #[test]
+    fn text_files_inside_a_cet_mod_folder_go_with_the_mod_but_stray_documents_stay_out() {
+        let (out, ignored) = map_all(&["Cool/init.lua", "Cool/lang.txt", "Cool/readme.md", "notes.txt", "Cool/"], "m").unwrap();
+        assert_eq!(out[0], Some(PathBuf::from("bin/x64/plugins/cyber_engine_tweaks/mods/Cool/init.lua")));
+        assert_eq!(out[1], Some(PathBuf::from("bin/x64/plugins/cyber_engine_tweaks/mods/Cool/lang.txt")));
+        assert_eq!(out[2], Some(PathBuf::from("bin/x64/plugins/cyber_engine_tweaks/mods/Cool/readme.md")));
+        assert_eq!((out[3].clone(), out[4].clone(), ignored.len()), (None, None, 0));
     }
 
     #[test]

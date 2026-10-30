@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.0.5 beta.
+An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.0.6 beta.
 
 It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop team.
 
@@ -20,6 +20,7 @@ It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop
 - Speaks English, Turkish, Russian, Spanish, Brazilian Portuguese, French, Polish and German.
 - Has system, dark and light themes.
 - Installs FOMOD mods with their option dialog, checks CET, RED4ext, ArchiveXL and other frameworks, and updates mods you own as Premium. Questions or ideas? Join our [Discord](https://discord.gg/EaNcFyCEqP).
+- Shows which mod replaced which mod's files, keeps one previous version of an updated mod so you can roll back, filters the mod list, groups mods under your own headers, and starts the game from the sidebar.
 
 ## Install
 

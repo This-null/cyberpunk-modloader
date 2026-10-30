@@ -21,6 +21,7 @@ struct Rule {
 struct Plugin {
     name: String,
     description: String,
+    image: String,
     files: Vec<Rule>,
     flags: Vec<(String, String)>,
     default_type: String,
@@ -62,6 +63,7 @@ pub struct Config {
 pub struct PluginView {
     pub name: String,
     pub description: String,
+    pub image: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -161,6 +163,7 @@ fn parse_plugin(node: roxmltree::Node) -> Plugin {
     let mut plugin = Plugin {
         name: attr(&node, "name"),
         description: text(kid(node, "description")),
+        image: kid(node, "image").map(|i| attr(&i, "path")).unwrap_or_default(),
         files: kid(node, "files").map(parse_rules).unwrap_or_default(),
         flags: kid(node, "conditionFlags")
             .map(|f| kids(f, "flag").map(|x| (attr(&x, "name"), text(Some(x)))).collect())
@@ -251,7 +254,7 @@ impl Config {
                             name: g.name.clone(),
                             kind: g.kind.clone(),
                             order: g.order.clone(),
-                            plugins: g.plugins.iter().map(|p| PluginView { name: p.name.clone(), description: p.description.clone() }).collect(),
+                            plugins: g.plugins.iter().map(|p| PluginView { name: p.name.clone(), description: p.description.clone(), image: p.image.clone() }).collect(),
                         })
                         .collect(),
                 })
@@ -432,7 +435,7 @@ mod tests {
       <optionalFileGroups order="Explicit">
         <group name="Color" type="SelectExactlyOne">
           <plugins order="Explicit">
-            <plugin name="Red"><description>Red one</description>
+            <plugin name="Red"><description>Red one</description><image path="images\red.png"/>
               <conditionFlags><flag name="color">red</flag></conditionFlags>
               <files><file source="Variants\red.archive" destination="archive\pc\mod\red.archive"/></files>
               <typeDescriptor><type name="Recommended"/></typeDescriptor></plugin>
@@ -481,6 +484,7 @@ mod tests {
         assert_eq!(view.steps.len(), 2);
         assert_eq!(view.steps[0].groups[0].kind, "SelectExactlyOne");
         assert_eq!(view.steps[0].groups[0].plugins[0].description, "Red one");
+        assert_eq!(view.steps[0].groups[0].plugins[0].image, "images\\red.png");
         let xml = r#"<config><installSteps order="Ascending"><installStep name="B"><optionalFileGroups order="Descending"><group name="G" type="SelectAny"><plugins order="Explicit"/></group></optionalFileGroups></installStep></installSteps></config>"#;
         let ordered = parse(xml).unwrap().view();
         assert_eq!((ordered.order.as_str(), ordered.steps[0].order.as_str(), ordered.steps[0].groups[0].order.as_str()), ("Ascending", "Descending", "Explicit"));

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import clsx from "clsx";
-import { ChevronRight, Download, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { ChevronRight, Clock, Download, ExternalLink, Eye, EyeOff, Flame, Heart, RotateCw, Search, Settings, Sparkles, Target, X } from "lucide-react";
+import { Dropdown } from "../../components/Dropdown";
 import { CoverPlaceholder } from "../../brand/CoverPlaceholder";
 import { activeLocale, useLocale, useT, type MessageKey } from "../../i18n";
 import { categoryName, categoryOptions, compactNumber, formatDate, SORTS, type Sort } from "../../lib/browse";
@@ -11,6 +13,14 @@ import { useTranslated, useTranslateState, useTranslations } from "../../lib/tra
 import { useSettings } from "../../stores/settings";
 import { useNexusBrowse } from "../../stores/nexusBrowse";
 import { percent } from "../../lib/nightcoop";
+
+const SORT_ICON: Record<Sort, ReactNode> = {
+  downloads: <Flame size={15} />,
+  endorsements: <Heart size={15} />,
+  createdAt: <Sparkles size={15} />,
+  updatedAt: <Clock size={15} />,
+  relevance: <Target size={15} />,
+};
 
 const SORT_LABEL: Record<Sort, MessageKey> = {
   downloads: "nexusPage.sortPopular",
@@ -109,10 +119,7 @@ function Card({
                 e.stopPropagation();
                 onInstall();
               }}
-              className={clsx(
-                "flex items-center gap-1.5 whitespace-nowrap rounded px-3 py-1",
-                installed ? "border border-line text-muted" : "bg-accent font-medium text-accent-ink disabled:opacity-60",
-              )}
+              className={clsx("btn btn-sm", !installed && "btn-primary")}
             >
               {!installed && <Download size={14} />}
               {installed
@@ -211,10 +218,7 @@ function DetailPanel({
           <button
             disabled={busy || installed || empty}
             onClick={onInstall}
-            className={clsx(
-              "flex items-center gap-2 whitespace-nowrap rounded px-4 py-1.5",
-              installed ? "border border-line text-muted" : "bg-accent font-medium text-accent-ink disabled:opacity-60",
-            )}
+            className={clsx("btn", !installed && "btn-primary")}
           >
             {!installed && <Download size={14} />}
             {installed
@@ -235,6 +239,7 @@ function DetailPanel({
           }}
           className="btn"
         >
+          <ExternalLink size={15} />
           {t("nexusPage.open")}
         </button>
       </div>
@@ -316,6 +321,7 @@ function Versions({ mod, premium }: { mod: NexusMod; premium: boolean }) {
                   onClick={() => void installFile(mod.mod_id, f.file_id)}
                   className="btn shrink-0 btn-sm disabled:opacity-60"
                 >
+                  <Download size={14} />
                   {t("nexusPage.installThis")}
                 </button>
               )}
@@ -375,6 +381,7 @@ function Requirements({ mod, premium }: { mod: NexusMod; premium: boolean }) {
                     }}
                     className="btn shrink-0 btn-sm"
                   >
+                    <ExternalLink size={14} />
                     {t("nexusPage.open")}
                   </button>
                 )}
@@ -387,6 +394,7 @@ function Requirements({ mod, premium }: { mod: NexusMod; premium: boolean }) {
               onClick={() => void installMissing(mod.mod_id)}
               className="self-start btn btn-primary disabled:opacity-60"
             >
+              <Download size={15} />
               {t("nexusPage.installMissing", { count: missing.length })}
             </button>
           )}
@@ -471,7 +479,7 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [detailId, openDetail]);
-  const chip = "rounded border px-3 py-1.5";
+  const chip = "chip";
 
   return (
     <div className={clsx("flex h-full flex-col gap-4", connected && detailMod && "mr-[25rem]")}>
@@ -489,8 +497,9 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
                 key={k}
                 onClick={() => setSort(k)}
                 aria-pressed={sort === k}
-                className={clsx(chip, sort === k ? "border-accent bg-accent text-accent-ink" : "border-line hover:bg-surface-2")}
+                className={clsx(chip, sort === k ? "chip-on" : "")}
               >
+                {SORT_ICON[k]}
                 {t(SORT_LABEL[k])}
               </button>
             ))}
@@ -503,6 +512,7 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
           <div className="flex max-w-md flex-col items-center gap-4">
             <p className="text-muted">{t("nexusPage.connectFirst")}</p>
             <button onClick={onSettings} className="btn btn-primary">
+              <Settings size={15} />
               {t("nexusPage.goSettings")}
             </button>
           </div>
@@ -510,35 +520,33 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              placeholder={t("nexusPage.search")}
-              aria-label={t("nexusPage.search")}
-              className="min-w-48 flex-1 rounded border border-line bg-surface px-3 py-2"
-            />
-            <select
-              value={category}
-              onChange={(e) => setCategory(Number(e.target.value))}
-              aria-label={t("nexusPage.allCategories")}
-              className="max-w-56 rounded border border-line bg-surface px-3 py-2"
-            >
-              <option value={0}>{t("nexusPage.allCategories")}</option>
-              {options.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {`${"  ".repeat(o.depth)}${o.name}`}
-                </option>
-              ))}
-            </select>
-            <label className="flex cursor-pointer items-center gap-2 rounded border border-line px-3 py-2">
+            <label className="field flex min-w-48 flex-1 items-center gap-2">
+              <Search size={16} className="shrink-0 text-muted" />
               <input
-                type="checkbox"
-                checked={hideAdult}
-                onChange={(e) => setHideAdult(e.target.checked)}
-                className="h-4 w-4 accent-[var(--accent)]"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder={t("nexusPage.search")}
+                aria-label={t("nexusPage.search")}
+                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted"
               />
-              {t("nexusPage.hideAdult")}
+              {typed !== "" && (
+                <button type="button" onClick={() => setTyped("")} aria-label={t("action.close")} className="shrink-0 rounded p-0.5 text-muted transition-colors hover:text-ink">
+                  <X size={15} />
+                </button>
+              )}
             </label>
+            <Dropdown
+              className="w-56"
+              value={category}
+              onChange={setCategory}
+              ariaLabel={t("nexusPage.allCategories")}
+              searchPlaceholder={t("nexusPage.search")}
+              options={[{ value: 0, label: t("nexusPage.allCategories") }, ...options.map((o) => ({ value: o.id, label: o.name, depth: o.depth }))]}
+            />
+            <button type="button" onClick={() => setHideAdult(!hideAdult)} aria-pressed={hideAdult} className={clsx("chip py-2", hideAdult && "chip-on")}>
+              {hideAdult ? <EyeOff size={16} /> : <Eye size={16} />}
+              {t("nexusPage.hideAdult")}
+            </button>
             {tag && (
               <button
                 onClick={() => setTag(null)}
@@ -559,6 +567,7 @@ export function NexusScreen({ onSettings }: { onSettings: () => void }) {
               <div className="flex flex-wrap items-center gap-3">
                 <p className="text-danger">{t("nexusPage.failed")}</p>
                 <button onClick={() => void reload()} className="btn">
+                  <RotateCw size={15} />
                   {t("nightcoop.retry")}
                 </button>
               </div>

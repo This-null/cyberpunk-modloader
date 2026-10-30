@@ -4,7 +4,7 @@ import { ipc, toAppError } from "../lib/ipc";
 import { useErrors } from "./errors";
 import { useMods } from "./mods";
 
-export type Theme = "system" | "dark" | "light" | "midnight" | "ocean" | "mocha" | "aurora" | "sunset" | "neon" | "emerald";
+export type Theme = "system" | "dark" | "light" | "midnight" | "ocean" | "mocha" | "aurora" | "sunset" | "neon" | "emerald" | "nightcity" | "crimson" | "arctic" | "rose" | "matrix";
 export type Motion = "system" | "full" | "reduced";
 export type AutoTranslate = "ask" | "on" | "off";
 

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { Download, Upload } from "lucide-react";
-import { useT } from "../../i18n";
+import { Search, Bookmark, ChevronDown, ChevronRight, Download, FileInput, ListChecks, Power, PowerOff, Share2, ShieldAlert, Upload, X } from "lucide-react";
+import { useT, type MessageKey } from "../../i18n";
 import { ipc } from "../../lib/ipc";
 import {
   addKeys,
@@ -24,10 +24,16 @@ import { groupMods, relation } from "../../lib/groups";
 import { ModCard } from "./ModCard";
 import { PresetsDialog } from "./PresetsDialog";
 import { FrameworkBanner } from "./FrameworkBanner";
+import { GameUpdateBanner } from "./GameUpdateBanner";
+import { HealthBanner } from "./HealthBanner";
+import { useGameInfo } from "../../stores/gameInfo";
+import { OverwritesDialog } from "./OverwritesDialog";
+import { overwrites } from "../../lib/overwrites";
 import { ProfileDialog } from "./ProfileDialog";
 import { useMyPresets } from "../../stores/presets";
 import { updatable, useModUpdates } from "../../stores/modUpdates";
 import { useNexus } from "../../stores/nexus";
+import { sectionsOf, useModGroups } from "../../stores/modGroups";
 import { useProfile } from "../../stores/profile";
 import { VersionRow } from "./VersionRow";
 import { ModDetails } from "./ModDetails";
@@ -68,7 +74,20 @@ export function ModsScreen() {
   const [running, setRunning] = useState(false);
   const [over, setOver] = useState(false);
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<"all" | "on" | "off" | "update">("all");
+  const searchRef = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [overOpen, setOverOpen] = useState(false);
+  const loadGame = useGameInfo((s) => s.load);
+
+  useEffect(() => {
+    void loadGame();
+  }, [loadGame, gameDir]);
+  const [groupName, setGroupName] = useState("");
+  const assign = useModGroups((s) => s.assign);
+  const closedGroups = useModGroups((s) => s.closed);
+  const nexusItems = useNexus((s) => s.items);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
   const lastKey = useRef<string | null>(null);
 
@@ -106,20 +125,35 @@ export function ModsScreen() {
   }, [install]);
 
   const shownMods = useMemo(
-    () => mods.filter((m) => matchesQuery([m.name, m.description, m.version], query)),
-    [mods, query],
+    () =>
+      mods.filter(
+        (m) =>
+          matchesQuery([m.name, m.description, m.version], query) &&
+          (status === "all" || (status === "on" ? m.enabled : status === "off" ? !m.enabled : nexusItems[m.name]?.update === true)) &&
+          true,
+      ),
+    [mods, query, status, nexusItems],
   );
   const shownExternal = useMemo(
     () => external.filter((m) => matchesQuery([m.name, m.kind], query)),
     [external, query],
   );
   const groups = useMemo(() => groupMods(shownMods), [shownMods]);
+  const clashes = useMemo(() => overwrites(mods), [mods]);
+  const sections = useMemo(
+    () => sectionsOf(groups, (g) => g.primary.name, (g) => nexusItems[g.primary.name]?.update === true, assign),
+    [groups, nexusItems, assign],
+  );
   const order = useMemo(
     () => [
-      ...groups.flatMap((g) => [modKey(g.primary.name), ...(openGroups.has(g.key) ? g.others.map((o) => modKey(o.name)) : [])]),
+      ...sections.flatMap((sec) =>
+        sec.kind === "group" && closedGroups.includes(sec.title)
+          ? []
+          : sec.items.flatMap((g) => [modKey(g.primary.name), ...(openGroups.has(g.key) ? g.others.map((o) => modKey(o.name)) : [])]),
+      ),
       ...shownExternal.map((m) => extKey(m.name)),
     ],
-    [groups, openGroups, shownExternal],
+    [sections, closedGroups, openGroups, shownExternal],
   );
   const allKeys = useMemo(
     () => [...mods.map((m) => modKey(m.name)), ...external.map((m) => extKey(m.name))],
@@ -136,9 +170,24 @@ export function ModsScreen() {
   }, [selected]);
 
   useEffect(() => {
+    if (selected.length === 0) return;
+    function onClick(e: MouseEvent) {
+      const el = e.target instanceof Element ? e.target : null;
+      if (!el || el.closest('li, button, input, select, textarea, a, label, aside, [role="dialog"], [data-keep-selection]')) return;
+      setSelected([]);
+    }
+    window.addEventListener("click", onClick);
+    return () => window.removeEventListener("click", onClick);
+  }, [selected.length, setSelected]);
+
+  useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (typing(e.target) || detail || pending) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
         setSelected(order);
       } else if (e.key === "Escape") {
@@ -171,7 +220,6 @@ export function ModsScreen() {
     else await exportAll(dest);
   }
 
-  const nexusItems = useNexus((s) => s.items);
   const nexusPremium = useNexus((s) => s.status?.user?.is_premium ?? false);
   const updating = useModUpdates((s) => s.running);
   const outdated = updatable(nexusItems).length;
@@ -187,6 +235,9 @@ export function ModsScreen() {
   return (
     <div className="relative flex h-full flex-col gap-4">
       <FrameworkBanner />
+      <GameUpdateBanner />
+      <HealthBanner locked={busy || running || !gameDir} />
+      {overOpen && <OverwritesDialog items={clashes} locked={busy || running || !gameDir} onClose={() => setOverOpen(false)} />}
       <PresetsDialog />
       <ProfileDialog names={selectedNames.length > 0 ? selectedNames : mods.map((m) => m.name)} />
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -201,11 +252,18 @@ export function ModsScreen() {
               {t("modupd.all", { count: outdated })}
             </button>
           )}
+          {clashes.length > 0 && (
+            <button onClick={() => setOverOpen(true)} className="btn">
+              <ShieldAlert size={16} />
+              {t("overwrites.button", { count: clashes.reduce((n, c) => n + c.files.length, 0) })}
+            </button>
+          )}
           <button
             disabled={busy || !gameDir}
             onClick={() => void useMyPresets.getState().show()}
             className="btn"
           >
+            <Bookmark size={16} />
             {t("presets.button")}
           </button>
           <button
@@ -213,6 +271,7 @@ export function ModsScreen() {
             onClick={() => void useProfile.getState().open("share", selectedNames.length > 0 ? selectedNames : mods.map((m) => m.name))}
             className="btn"
           >
+            <Share2 size={16} />
             {t("profile.share")}
           </button>
           <button
@@ -220,6 +279,7 @@ export function ModsScreen() {
             onClick={() => void useProfile.getState().open("import", [])}
             className="btn"
           >
+            <FileInput size={16} />
             {t("profile.import")}
           </button>
           <button
@@ -244,32 +304,96 @@ export function ModsScreen() {
       {allKeys.length > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("mods.search")}
-              aria-label={t("mods.search")}
-              className="min-w-48 flex-1 rounded border border-line bg-surface px-3 py-2"
-            />
+            <label className="field flex min-w-48 flex-1 items-center gap-2">
+              <Search size={16} className="shrink-0 text-muted" />
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("mods.search")}
+                aria-label={t("mods.search")}
+                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted"
+              />
+              {query !== "" && (
+                <button type="button" onClick={() => setQuery("")} aria-label={t("action.close")} className="shrink-0 rounded p-0.5 text-muted transition-colors hover:text-ink">
+                  <X size={15} />
+                </button>
+              )}
+            </label>
             <button className={btn} disabled={order.length === 0} onClick={() => setSelected(order)}>
+              <ListChecks size={16} />
               {t("mods.selectAll")}
             </button>
             <button className={btn} disabled={selected.length === 0} onClick={() => setSelected([])}>
+              <X size={16} />
               {t("mods.clearSelection")}
             </button>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {(["all", "on", "off", "update"] as const).map((v) => (
+              <button key={v} className={`chip ${status === v ? "chip-on" : ""}`} aria-pressed={status === v} onClick={() => setStatus(v)}>
+                {t(`mods.filter.${v}` as MessageKey)}
+              </button>
+            ))}
+          </div>
           {selected.length === 0 ? null : (
-            <div className="anim-rise flex flex-wrap items-center gap-2 rounded-lg border border-accent bg-surface px-3 py-2">
+            <div data-keep-selection className="anim-rise flex flex-wrap items-center gap-2 rounded-lg border border-accent bg-surface px-3 py-2">
               <span className="mr-2 font-medium">{t("mods.selected", { count: selected.length })}</span>
               <button className={btn} disabled={locked || toEnable.length === 0} onClick={() => void bulkEnable(toEnable)}>
+                <Power size={15} />
                 {t("action.enable")}
               </button>
               <button className={btn} disabled={locked || toDisable.length === 0} onClick={() => void bulkDisable(toDisable)}>
+                <PowerOff size={15} />
                 {t("action.disable")}
               </button>
               <button className={btn} disabled={busy || selectedNames.length === 0} onClick={() => void pack(selectedNames)}>
+                <Upload size={15} />
                 {t("action.export")}
               </button>
+              {groupOpen ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    list="mod-group-names"
+                    placeholder={t("mods.groupName")}
+                    aria-label={t("mods.groupName")}
+                    maxLength={40}
+                    className="w-44 rounded border border-line bg-bg px-2 py-1.5"
+                  />
+                  <datalist id="mod-group-names">
+                    {[...new Set(Object.values(assign))].map((g) => (
+                      <option key={g} value={g} />
+                    ))}
+                  </datalist>
+                  <button
+                    className="btn btn-primary"
+                    disabled={groupName.trim() === "" || selectedNames.length === 0}
+                    onClick={() => {
+                      useModGroups.getState().move(selectedNames, groupName);
+                      setGroupOpen(false);
+                      setGroupName("");
+                    }}
+                  >
+                    {t("mods.groupApply")}
+                  </button>
+                  <button className={btn} onClick={() => setGroupOpen(false)}>
+                    {t("action.cancel")}
+                  </button>
+                </span>
+              ) : (
+                <>
+                  <button className={btn} disabled={selectedNames.length === 0} onClick={() => setGroupOpen(true)}>
+                    {t("mods.groupMove")}
+                  </button>
+                  {selectedNames.some((n) => assign[n]) && (
+                    <button className={btn} onClick={() => useModGroups.getState().move(selectedNames, null)}>
+                      {t("mods.groupRemove")}
+                    </button>
+                  )}
+                </>
+              )}
               <button className={btn} disabled={busy || selectedExternal.length === 0} onClick={() => void bulkImport(selectedExternal)}>
                 {t("action.import")}
               </button>
@@ -342,45 +466,77 @@ export function ModsScreen() {
           </div>
         )}
         {nothingShown && <p className="text-muted">{t("mods.noResults")}</p>}
-        {groups.length > 0 && (
-          <ul className="flex flex-col gap-2">
-            {groups.map((g, i) => (
-              <ModCard
-                key={g.key}
-                mod={g.primary}
-                disabled={locked}
-                onEnable={() => enable(g.primary.name)}
-                onDisable={() => disable(g.primary.name)}
-                onUninstall={() => uninstall(g.primary.name)}
-                selected={selected.includes(modKey(g.primary.name))}
-                onSelect={({ shift }) => onSelect(modKey(g.primary.name), shift)}
-                index={i}
-                othersCount={g.others.length}
-                expanded={openGroups.has(g.key)}
-                onToggle={() =>
-                  setOpenGroups((prev) => {
-                    const next = new Set(prev);
-                    if (!next.delete(g.key)) next.add(g.key);
-                    return next;
-                  })
-                }
-                others={g.others.map((o) => (
-                  <VersionRow
-                    key={o.name}
-                    mod={o}
-                    relation={relation(o.version, g.primary.version)}
-                    disabled={locked}
-                    onEnable={() => enable(o.name)}
-                    onDisable={() => disable(o.name)}
-                    onUninstall={() => uninstall(o.name)}
-                    selected={selected.includes(modKey(o.name))}
-                    onSelect={({ shift }) => onSelect(modKey(o.name), shift)}
-                  />
-                ))}
-              />
-            ))}
-          </ul>
-        )}
+        {sections.map((sec, si) => {
+          const closed = sec.kind === "group" && closedGroups.includes(sec.title);
+          const before = sections.slice(0, si).reduce((n, x) => n + x.items.length, 0);
+          return (
+            <section key={sec.id} className="flex flex-col gap-2">
+              {sec.kind === "updates" && (
+                <h2 className="flex items-center gap-2 font-medium text-accent">
+                  <span>{t("mods.updatesSection", { count: sec.items.length })}</span>
+                  <span className="h-px flex-1 bg-accent/40" aria-hidden />
+                </h2>
+              )}
+              {sec.kind === "group" && (
+                <button
+                  onClick={() => useModGroups.getState().toggle(sec.title)}
+                  aria-expanded={!closed}
+                  className="flex items-center gap-2 text-left font-medium hover:text-accent"
+                >
+                  {closed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                  <span>{sec.title}</span>
+                  <span className="text-xs text-muted">{sec.items.length}</span>
+                  <span className="h-px flex-1 bg-line" aria-hidden />
+                </button>
+              )}
+              {sec.kind === "rest" && sections.length > 1 && (
+                <h2 className="flex items-center gap-2 font-medium text-muted">
+                  <span>{t("mods.otherSection")}</span>
+                  <span className="h-px flex-1 bg-line" aria-hidden />
+                </h2>
+              )}
+              {!closed && (
+                <ul className="flex flex-col gap-2">
+                  {sec.items.map((g, i) => (
+                    <ModCard
+                      key={g.key}
+                      mod={g.primary}
+                      disabled={locked}
+                      onEnable={() => enable(g.primary.name)}
+                      onDisable={() => disable(g.primary.name)}
+                      onUninstall={() => uninstall(g.primary.name)}
+                      selected={selected.includes(modKey(g.primary.name))}
+                      onSelect={({ shift }) => onSelect(modKey(g.primary.name), shift)}
+                      index={before + i}
+                      othersCount={g.others.length}
+                      expanded={openGroups.has(g.key)}
+                      onToggle={() =>
+                        setOpenGroups((prev) => {
+                          const next = new Set(prev);
+                          if (!next.delete(g.key)) next.add(g.key);
+                          return next;
+                        })
+                      }
+                      others={g.others.map((o) => (
+                        <VersionRow
+                          key={o.name}
+                          mod={o}
+                          relation={relation(o.version, g.primary.version)}
+                          disabled={locked}
+                          onEnable={() => enable(o.name)}
+                          onDisable={() => disable(o.name)}
+                          onUninstall={() => uninstall(o.name)}
+                          selected={selected.includes(modKey(o.name))}
+                          onSelect={({ shift }) => onSelect(modKey(o.name), shift)}
+                        />
+                      ))}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
         {shownExternal.length > 0 && (
           <section className="flex flex-col gap-2">
             <h2 className="font-medium">{t("mods.external")}</h2>

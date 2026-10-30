@@ -5,6 +5,33 @@ import { categoryNames, SEARCH_PAGE, type Sort } from "../lib/browse";
 import { useErrors } from "./errors";
 import { useMods } from "./mods";
 
+const FILTERS_KEY = "cp2077-nexus-filters";
+const SAVED_SORTS: Sort[] = ["downloads", "endorsements", "createdAt", "updatedAt"];
+
+function loadFilters(): { sort: Sort; category: number; hideAdult: boolean; tag: string | null } {
+  const fresh = { sort: "downloads" as Sort, category: 0, hideAdult: true, tag: null as string | null };
+  try {
+    const raw = JSON.parse(localStorage.getItem(FILTERS_KEY) ?? "null") as Record<string, unknown> | null;
+    if (!raw || typeof raw !== "object") return fresh;
+    return {
+      sort: SAVED_SORTS.includes(raw.sort as Sort) ? (raw.sort as Sort) : fresh.sort,
+      category: Number.isInteger(raw.category) && (raw.category as number) >= 0 ? (raw.category as number) : 0,
+      hideAdult: typeof raw.hideAdult === "boolean" ? raw.hideAdult : true,
+      tag: typeof raw.tag === "string" && raw.tag !== "" ? raw.tag : null,
+    };
+  } catch {
+    return fresh;
+  }
+}
+
+function saveFilters(f: { sort: Sort; category: number; hideAdult: boolean; tag: string | null }) {
+  try {
+    localStorage.setItem(FILTERS_KEY, JSON.stringify({ sort: SAVED_SORTS.includes(f.sort) ? f.sort : "downloads", category: f.category, hideAdult: f.hideAdult, tag: f.tag }));
+  } catch {
+    // filters then last for this session only
+  }
+}
+
 export interface RequirementsEntry {
   loading: boolean;
   failed: boolean;
@@ -98,11 +125,8 @@ export const useNexusBrowse = create<BrowseState>((set, get) => {
     installing: null,
     progress: null,
     premiumNeeded: false,
-    sort: "downloads",
+    ...loadFilters(),
     query: "",
-    category: 0,
-    hideAdult: true,
-    tag: null,
 
     start: async () => {
       try {
@@ -235,6 +259,7 @@ export const useNexusBrowse = create<BrowseState>((set, get) => {
 
     setSort: (sort) => {
       set({ sort });
+      saveFilters(get());
       refetch();
     },
     setQuery: (query) => {
@@ -244,14 +269,17 @@ export const useNexusBrowse = create<BrowseState>((set, get) => {
     },
     setCategory: (category) => {
       set({ category });
+      saveFilters(get());
       refetch();
     },
     setHideAdult: (hideAdult) => {
       set({ hideAdult });
+      saveFilters(get());
       refetch();
     },
     setTag: (tag) => {
       set({ tag });
+      saveFilters(get());
       refetch();
     },
   };

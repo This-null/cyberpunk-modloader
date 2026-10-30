@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Ein inoffizieller Mod-Manager aus der Community für Cyberpunk 2077 unter Windows. Version 0.0.5 Beta.
+Ein inoffizieller Mod-Manager aus der Community für Cyberpunk 2077 unter Windows. Version 0.0.6 Beta.
 
 Er stammt nicht von CD PROJEKT RED, Nexus Mods oder dem NightCoop-Team und ist nicht mit ihnen verbunden.
 
@@ -20,6 +20,7 @@ Er stammt nicht von CD PROJEKT RED, Nexus Mods oder dem NightCoop-Team und ist n
 - Spricht Englisch, Türkisch, Russisch, Spanisch, brasilianisches Portugiesisch, Französisch, Polnisch und Deutsch.
 - Hat System-, dunkles und helles Design.
 - Installiert FOMOD-Mods mit Optionsdialog, prüft CET, RED4ext, ArchiveXL und weitere Frameworks und aktualisiert Mods mit Premium. Fragen oder Ideen? Komm auf unseren [Discord](https://discord.gg/EaNcFyCEqP).
+- Zeigt, welcher Mod die Dateien welches Mods ersetzt hat, behält eine frühere Version eines aktualisierten Mods zum Zurücksetzen, filtert die Modliste, gruppiert Mods unter eigenen Überschriften und startet das Spiel aus der Seitenleiste.
 
 ## Installation
 

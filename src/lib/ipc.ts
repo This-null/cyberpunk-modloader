@@ -11,6 +11,14 @@ export interface ModRecord {
   image: string | null;
   source: string | null;
   nexus_id: number | null;
+  backups?: { file: string; owner: string | null }[];
+}
+
+export interface ModHealth {
+  name: string;
+  enabled: boolean;
+  missing_installed: string[];
+  missing_library: number;
 }
 
 export interface ExternalMod {
@@ -135,6 +143,7 @@ export interface FoundDownload {
 export interface FomodPlugin {
   name: string;
   description: string;
+  image: string;
 }
 
 export interface FomodGroup {
@@ -256,6 +265,7 @@ export interface NexusItem {
   latest: string | null;
   update: boolean;
   checked_at: number | null;
+  updated: number | null;
   page_url: string;
   error: string | null;
 }
@@ -336,6 +346,11 @@ export const ipc = {
   frameworkPlan: (id: string) => invoke<string[]>("framework_plan", { id }),
   frameworkRemove: (id: string) => invoke<number>("framework_remove", { id }),
   frameworkStatus: () => invoke<FrameworkReport>("framework_status"),
+  gameVersion: () => invoke<string | null>("game_version"),
+  gamePatchTime: () => invoke<number | null>("game_patch_time"),
+  fomodImage: (path: string) => invoke<string | null>("fomod_image", { path }),
+  modHealth: () => invoke<ModHealth[]>("mod_health"),
+  launchGame: () => invoke<void>("launch_game"),
   nexusFiles: (modId: number) => invoke<NexusFileInfo[]>("nexus_files", { modId }),
   nexusInstallFile: (modId: number, fileId: number) => invoke<string[]>("nexus_install_file", { modId, fileId }),
   nexusFillCovers: () => invoke<number>("nexus_fill_covers"),

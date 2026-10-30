@@ -48,7 +48,7 @@ export function ModDetails() {
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/55 p-6 anim-fade" role="dialog" aria-modal="true">
-      <div className="anim-pop flex max-h-full w-full max-w-2xl flex-col gap-4 overflow-auto rounded-lg border border-line bg-surface p-6">
+      <div className="anim-pop flex max-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col gap-4 overflow-auto rounded-lg border border-line bg-surface p-6">
         <div className="grid h-52 w-full place-items-center overflow-hidden rounded-md bg-surface-2">
           {image ? (
             <img src={image} alt="" className="h-full w-full object-cover" draggable={false} />

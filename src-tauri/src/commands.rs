@@ -215,6 +215,37 @@ pub fn game_running() -> bool {
 }
 
 #[tauri::command]
+pub fn game_version(state: State<'_, AppState>) -> Option<String> {
+    let lib = library(&state).ok()?;
+    crate::frameworks::file_version(&lib.game_dir().join("bin").join("x64").join("Cyberpunk2077.exe"))
+}
+
+#[tauri::command]
+pub fn game_patch_time(state: State<'_, AppState>) -> Option<u64> {
+    let lib = library(&state).ok()?;
+    let modified = fs::metadata(lib.game_dir().join("bin").join("x64").join("Cyberpunk2077.exe")).ok()?.modified().ok()?;
+    modified.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+}
+
+#[tauri::command]
+pub fn launch_game(state: State<'_, AppState>) -> Result<(), AppError> {
+    if game::is_game_running() {
+        return Ok(());
+    }
+    let dir = library(&state)?.game_dir().to_path_buf();
+    let exe = dir.join("bin").join("x64").join("Cyberpunk2077.exe");
+    if !exe.is_file() {
+        return logged(Err(AppError::NotFound("game executable".into())));
+    }
+    let started = if dir.to_string_lossy().to_ascii_lowercase().contains("steamapps") {
+        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", "steam://rungameid/1091500"]).spawn()
+    } else {
+        std::process::Command::new(&exe).current_dir(exe.parent().unwrap_or(&dir)).spawn()
+    };
+    logged(started.map(|_| ()).map_err(|e| AppError::Io(e.to_string())))
+}
+
+#[tauri::command]
 pub fn framework_status(state: State<'_, AppState>) -> Result<crate::frameworks::FrameworkReport, AppError> {
     let lib = library(&state)?;
     Ok(crate::frameworks::check(lib.game_dir()))
@@ -257,6 +288,11 @@ pub fn framework_remove(state: State<'_, AppState>, id: String) -> Result<u32, A
 #[tauri::command]
 pub fn list_mods(state: State<'_, AppState>) -> Result<Vec<ModRecord>, AppError> {
     logged(library(&state)?.list())
+}
+
+#[tauri::command]
+pub fn mod_health(state: State<'_, AppState>) -> Result<Vec<crate::library::Health>, AppError> {
+    logged(library(&state)?.health())
 }
 
 #[tauri::command]
@@ -984,6 +1020,21 @@ pub fn fomod_eval(state: State<'_, AppState>, selection: fomod::Selection) -> Re
 }
 
 #[tauri::command]
+pub fn fomod_image(state: State<'_, AppState>, path: String) -> Result<Option<String>, AppError> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let wanted = path.replace('\\', "/").trim_start_matches("./").to_ascii_lowercase();
+    let ext = wanted.rsplit('.').next().unwrap_or("").to_string();
+    if wanted.is_empty() || wanted.contains("..") || !["png", "jpg", "jpeg", "webp", "gif", "bmp"].contains(&ext.as_str()) {
+        return Ok(None);
+    }
+    let (mut archive, _, _, entries, _) = fomod_open(&state.data)?;
+    let Some((idx, _)) = entries.iter().find(|(_, rel)| rel.to_ascii_lowercase() == wanted) else { return Ok(None) };
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(archive.by_index(*idx)?, 2 * 1024 * 1024), &mut bytes)?;
+    Ok(Some(format!("data:{};base64,{}", crate::meta::mime_for(&ext), STANDARD.encode(bytes))))
+}
+
+#[tauri::command]
 pub fn fomod_cancel(state: State<'_, AppState>) {
     let _ = fs::remove_dir_all(fomod_dir(&state.data));
 }
@@ -1026,7 +1077,7 @@ fn run_nexus_install(
 ) -> Result<Vec<String>, AppError> {
     let api = nexus::Api::official();
     let info = nexus::mod_info(&api, key, mod_id)?;
-    let files = nexus::files(&api, key, mod_id)?;
+    let (files, links) = nexus::files_with_lines(&api, key, mod_id)?;
     let (file, link_auth) = match forced {
         Some((file_id, auth)) => (
             files
@@ -1078,6 +1129,7 @@ fn run_nexus_install(
     let records = installed?;
     for rec in &records {
         lib.set_nexus_id(&rec.name, Some(mod_id))?;
+        let _ = lib.set_nexus_chain(&rec.name, nexus::file_line(file.file_id, &links));
         let description = if rec.description.is_empty() {
             info.summary.clone().unwrap_or_default()
         } else {

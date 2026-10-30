@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, Trash2, X } from "lucide-react";
 import { useT } from "../../i18n";
 import { FRAMEWORKS, neededFrameworks } from "../../lib/frameworks";
 import { frameworkOutdated, useFrameworks } from "../../stores/frameworks";
@@ -59,6 +59,7 @@ export function FrameworkList() {
             {t("fw.owned", { name: FRAMEWORKS.find((f) => f.id === owned.id)?.name ?? owned.id, mod: owned.mod })}
           </span>
           <button className="btn btn-sm" onClick={() => useNav.getState().setPage("mods")}>
+            <ArrowRight size={15} />
             {t("fw.goMods")}
           </button>
         </p>
@@ -100,14 +101,17 @@ export function FrameworkList() {
                         void useFrameworks.getState().remove(fw.id);
                       }}
                     >
+                      <Trash2 size={15} />
                       {t("fw.removeConfirm")}
                     </button>
                     <button className="btn btn-sm" onClick={() => setArmed(null)}>
+                      <X size={15} />
                       {t("action.cancel")}
                     </button>
                   </>
                 ) : (
                   <button className="btn btn-sm btn-danger" disabled={busy !== null} onClick={() => void useFrameworks.getState().arm(fw.id).then(() => setArmed(fw.id))}>
+                    <Trash2 size={15} />
                     {t("fw.remove")}
                   </button>
                 ))}

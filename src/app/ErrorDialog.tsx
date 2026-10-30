@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Copy, Download, ExternalLink, X } from "lucide-react";
 import { activeLocale, useLocale, useT } from "../i18n";
+import { Dropdown } from "../components/Dropdown";
 import { ipc, type LogFile } from "../lib/ipc";
 import { errorMessageKey, useErrors } from "../stores/errors";
 
@@ -35,6 +37,37 @@ export function ErrorDialog() {
 
   if (!err) return null;
 
+  if (err.code === "no_files") {
+    const note = err.technical.split("\n---\n")[1]?.trim() ?? "";
+    const links = [...new Set((note.match(/https:\/\/(?:www\.)?nexusmods\.com\/[^\s"')>]+/gi) ?? []).map((u) => u.replace(/[.,;:]+$/, "")))];
+    return (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-6 anim-fade" role="dialog" aria-modal="true">
+        <div className="anim-pop flex max-h-[calc(100vh-3rem)] w-full max-w-xl flex-col gap-4 overflow-auto rounded-lg border border-line bg-surface p-6">
+          <h2 className="text-lg font-semibold">{t("error.noFilesTitle")}</h2>
+          <p className="text-muted">{t("err.no_files")}</p>
+          {note && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted">{t("error.authorNote")}</span>
+              <pre className="select-text whitespace-pre-wrap break-words rounded border border-line bg-surface-2 p-3 text-sm">{note}</pre>
+            </div>
+          )}
+          <div className="flex flex-wrap justify-end gap-2">
+            {links.slice(0, 3).map((u) => (
+              <button key={u} onClick={() => void ipc.openUrl(u)} className="btn btn-primary">
+                <ExternalLink size={15} />
+                {t("error.openLink")}
+              </button>
+            ))}
+            <button onClick={dismiss} className="btn">
+              <X size={15} />
+              {t("action.close")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const key = errorMessageKey(err.code);
 
   async function save() {
@@ -54,7 +87,7 @@ export function ErrorDialog() {
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-6 anim-fade" role="dialog" aria-modal="true">
-      <div className="anim-pop flex max-h-full w-full max-w-xl flex-col gap-4 overflow-auto rounded-lg border border-line bg-surface p-6">
+      <div className="anim-pop flex max-h-[calc(100vh-3rem)] w-full max-w-xl flex-col gap-4 overflow-auto rounded-lg border border-line bg-surface p-6">
         <h2 className="text-lg font-semibold">{t("error.title")}</h2>
         <p>{key ? t(key) : t("error.title")}</p>
         <details className="text-muted">
@@ -72,18 +105,12 @@ export function ErrorDialog() {
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-muted">{t("error.addLog")}</span>
-          <select
+          <Dropdown
             value={logId ?? ""}
-            onChange={(e) => setLogId(e.target.value || null)}
-            className="rounded border border-line bg-surface-2 px-3 py-2"
-          >
-            <option value="">{t("error.noLog")}</option>
-            {logFiles.slice(0, 40).map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.source} · {f.name}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setLogId(v || null)}
+            ariaLabel={t("error.addLog")}
+            options={[{ value: "", label: t("error.noLog") }, ...logFiles.slice(0, 40).map((f) => ({ value: f.id, label: `${f.source} · ${f.name}` }))]}
+          />
         </label>
         <details className="text-muted">
           <summary className="cursor-pointer">{t("error.preview")}</summary>
@@ -93,12 +120,15 @@ export function ErrorDialog() {
         {status && <p className="text-ok">{status}</p>}
         <div className="flex flex-wrap justify-end gap-2">
           <button onClick={copy} className="btn">
+            <Copy size={15} />
             {t("error.copy")}
           </button>
           <button onClick={save} className="btn btn-primary">
+            <Download size={15} />
             {t("error.save")}
           </button>
           <button onClick={dismiss} className="btn">
+            <X size={15} />
             {t("action.close")}
           </button>
         </div>

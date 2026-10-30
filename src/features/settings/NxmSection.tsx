@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link2, Unlink } from "lucide-react";
 import { useT } from "../../i18n";
 import { ipc, type NxmHandler } from "../../lib/ipc";
 import { useErrors } from "../../stores/errors";
@@ -29,6 +30,7 @@ export function NxmSection() {
           <>
             <span className="text-ok">{t("nxm.on")}</span>
             <button onClick={() => void toggle(false)} className="btn">
+              <Unlink size={15} />
               {t("nxm.disable")}
             </button>
           </>
@@ -36,6 +38,7 @@ export function NxmSection() {
           <>
             {state === "other" && <span className="text-muted">{t("nxm.other")}</span>}
             <button onClick={() => void toggle(true)} className="btn btn-primary">
+              <Link2 size={15} />
               {state === "other" ? t("nxm.replace") : t("nxm.enable")}
             </button>
           </>

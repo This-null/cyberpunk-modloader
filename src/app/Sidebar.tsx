@@ -1,4 +1,5 @@
-import { FileText, Globe, Package, Settings, User } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FileText, Globe, Package, Play, Settings, User } from "lucide-react";
 import clsx from "clsx";
 import { useT, type MessageKey } from "../i18n";
 import { ipc } from "../lib/ipc";
@@ -6,6 +7,7 @@ import { updateAvailable } from "../lib/nightcoop";
 import { useMods } from "../stores/mods";
 import { useNexus } from "../stores/nexus";
 import { useNightcoop } from "../stores/nightcoop";
+import { useSettings } from "../stores/settings";
 
 export type Page = "mods" | "nexus" | "profile" | "logs" | "settings";
 
@@ -43,6 +45,23 @@ export function Sidebar({ page, onChange }: { page: Page; onChange: (p: Page) =>
   const detected = useNightcoop((s) => s.detected);
   const nexusUpdates = useNexus((s) => Object.values(s.items).filter((i) => i.update).length);
   const updateCount = nexusUpdates + (updateAvailable(data, mods, detected) ? 1 : 0);
+  const gameDir = useSettings((s) => s.gameDir);
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = () =>
+      ipc
+        .gameRunning()
+        .then((r) => alive && setRunning(r))
+        .catch(() => {});
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
 
   return (
     <nav className="flex w-56 shrink-0 flex-col border-r border-line bg-surface px-3 pb-3 pt-4">
@@ -84,6 +103,14 @@ export function Sidebar({ page, onChange }: { page: Page; onChange: (p: Page) =>
       </div>
 
       <div className="mt-auto flex flex-col gap-2 border-t border-line pt-3">
+        <button
+          disabled={running || !gameDir}
+          onClick={() => void ipc.launchGame()}
+          className="btn btn-ok btn-play h-11 w-full text-base"
+        >
+          <Play size={18} />
+          {running ? t("mods.playing") : t("mods.play")}
+        </button>
         <button
           onClick={() => void ipc.openUrl(REPO)}
           className="group flex items-center gap-3 rounded-xl border border-line bg-surface-2 p-3 text-left hover:border-accent/50"

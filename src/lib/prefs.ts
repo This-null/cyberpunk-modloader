@@ -3,7 +3,7 @@ import { LOCALES } from "../i18n/locale";
 import { ipc } from "./ipc";
 import { useSettings, type AutoTranslate, type Motion, type Theme } from "../stores/settings";
 
-const THEMES: Theme[] = ["system", "dark", "light", "midnight", "ocean", "mocha", "aurora", "sunset", "neon", "emerald"];
+const THEMES: Theme[] = ["system", "dark", "light", "midnight", "ocean", "mocha", "aurora", "sunset", "neon", "emerald", "nightcity", "crimson", "arctic", "rose", "matrix"];
 const MOTIONS: Motion[] = ["system", "full", "reduced"];
 
 const TRANSLATES: AutoTranslate[] = ["ask", "on", "off"];

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { FolderOpen } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import clsx from "clsx";
 import { useLocale, useT, type LocaleChoice, type MessageKey } from "../../i18n";
 import { LOCALES, LOCALE_NAMES } from "../../i18n/locale";
+import { Dropdown } from "../../components/Dropdown";
 import { Logo } from "../../brand/Logo";
 import { ipc, type AppInfo } from "../../lib/ipc";
 import { useSettings, type AutoTranslate, type Motion } from "../../stores/settings";
@@ -66,6 +68,7 @@ export function SettingsScreen() {
             {gameDir ?? t("settings.notSet")}
           </code>
           <button onClick={browse} className="btn">
+            <FolderOpen size={15} />
             {t("settings.browse")}
           </button>
         </div>
@@ -91,18 +94,13 @@ export function SettingsScreen() {
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
         <h2 className="text-base font-semibold">{t("settings.language")}</h2>
-        <select
-          value={choice}
-          onChange={(e) => setChoice(e.target.value as LocaleChoice)}
-          className="w-72 rounded-md border border-line bg-surface-2 px-3 py-2"
-        >
-          <option value="auto">{t("settings.languageAuto")}</option>
-          {LOCALES.map((l) => (
-            <option key={l} value={l}>
-              {LOCALE_NAMES[l]}
-            </option>
-          ))}
-        </select>
+        <Dropdown
+          className="w-72"
+          value={choice as string}
+          onChange={(v) => setChoice(v as LocaleChoice)}
+          ariaLabel={t("settings.language")}
+          options={[{ value: "auto", label: t("settings.languageAuto") }, ...LOCALES.map((l) => ({ value: l as string, label: LOCALE_NAMES[l] }))]}
+        />
       </section>
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
@@ -121,18 +119,13 @@ export function SettingsScreen() {
         <Segmented value={translate} options={translates.map((o) => ({ value: o.value, label: t(o.label) }))} onChange={setTranslate} />
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted">{t("translate.into")}</span>
-          <select
+          <Dropdown
+            className="w-72"
             value={translateLang}
-            onChange={(e) => setTranslateLang(e.target.value)}
-            className="w-72 rounded-md border border-line bg-surface-2 px-3 py-2"
-          >
-            <option value="app">{t("translate.sameAsApp")}</option>
-            {LOCALES.map((l) => (
-              <option key={l} value={l}>
-                {LOCALE_NAMES[l]}
-              </option>
-            ))}
-          </select>
+            onChange={setTranslateLang}
+            ariaLabel={t("translate.into")}
+            options={[{ value: "app", label: t("translate.sameAsApp") }, ...LOCALES.map((l) => ({ value: l as string, label: LOCALE_NAMES[l] }))]}
+          />
         </label>
         <p className="text-xs text-muted">{t("translate.hint")}</p>
         <p className="text-xs text-muted">{t("translate.byGoogle")}</p>

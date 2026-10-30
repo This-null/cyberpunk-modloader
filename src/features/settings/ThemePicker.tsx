@@ -13,6 +13,11 @@ const options: { value: Theme; label: MessageKey; swatch: [string, string, strin
   { value: "sunset", label: "theme.sunset", swatch: ["#2b1335", "#4c2020", "#ff9e6d"] },
   { value: "neon", label: "theme.neon", swatch: ["#ff0080", "#140c20", "#00e5ff"] },
   { value: "emerald", label: "theme.emerald", swatch: ["#0e1f18", "#34d399", "#e9c46a"] },
+  { value: "nightcity", label: "theme.nightcity", swatch: ["#07070c", "#00f0ff", "#fcee0a"] },
+  { value: "crimson", label: "theme.crimson", swatch: ["#120708", "#dc2626", "#ff5a5f"] },
+  { value: "arctic", label: "theme.arctic", swatch: ["#eaf1f8", "#ffffff", "#2f6fdc"] },
+  { value: "rose", label: "theme.rose", swatch: ["#1a1016", "#f4a6b8", "#facc15"] },
+  { value: "matrix", label: "theme.matrix", swatch: ["#030906", "#0d1f18", "#22f27c"] },
 ];
 
 export function ThemePicker() {

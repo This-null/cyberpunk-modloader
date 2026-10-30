@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Power, PowerOff, RotateCcw } from "lucide-react";
 import clsx from "clsx";
 import { useT } from "../../i18n";
 import type { Relation } from "../../lib/groups";
@@ -65,7 +66,8 @@ export function VersionRow({ mod, relation, disabled, onEnable, onDisable, onUni
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button disabled={disabled} onClick={mod.enabled ? onDisable : onEnable} className={clsx("btn btn-sm", mod.enabled ? "btn-danger" : "btn-ok")}>
-          {mod.enabled ? t("action.disable") : t("action.enable")}
+          {mod.enabled ? <PowerOff size={14} /> : relation === "older" ? <RotateCcw size={14} /> : <Power size={14} />}
+          {mod.enabled ? t("action.disable") : relation === "older" ? t("mods.rollback") : t("action.enable")}
         </button>
         <button onClick={() => openDetail(mod.name)} className={small}>
           {t("action.details")}
