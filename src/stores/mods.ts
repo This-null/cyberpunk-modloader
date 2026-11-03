@@ -1,0 +1,359 @@
+import { listen } from "@tauri-apps/api/event";
+import { create } from "zustand";
+import { translate } from "../i18n";
+import { makeThumb } from "../lib/thumb";
+import { ipc, toAppError, type Conflict, type ExternalMod, type ModRecord } from "../lib/ipc";
+import { modNameFromPath } from "../lib/names";
+import { useErrors } from "./errors";
+
+export interface PendingConflict {
+  name: string;
+  conflicts: Conflict[];
+  retry?: () => Promise<void>;
+}
+
+interface ModsState {
+  mods: ModRecord[];
+  external: ExternalMod[];
+  busy: boolean;
+  begin: () => void;
+  end: () => void;
+  pending: PendingConflict | null;
+  images: Record<string, string | null>;
+  detail: string | null;
+  notice: string | null;
+  exporting: { done: number; total: number } | null;
+  skipped: string[];
+  ignored: string[];
+  clearIgnored: () => void;
+  clearSkipped: () => void;
+  selected: string[];
+  setSelected: (keys: string[]) => void;
+  toggleSelected: (key: string) => void;
+  bulkEnable: (names: string[]) => Promise<void>;
+  bulkDisable: (names: string[]) => Promise<void>;
+  bulkUninstall: (names: string[]) => Promise<void>;
+  bulkImport: (names: string[]) => Promise<void>;
+  exportSome: (names: string[], dest: string) => Promise<void>;
+  loadImage: (mod: ModRecord) => Promise<void>;
+  openDetail: (name: string | null) => void;
+  saveInfo: (name: string, description: string, version: string, imagePath: string | null) => Promise<void>;
+  exportOne: (name: string, dest: string) => Promise<void>;
+  exportAll: (dest: string) => Promise<void>;
+  clearNotice: () => void;
+  refresh: () => Promise<void>;
+  install: (paths: string[]) => Promise<void>;
+  importExternal: (name: string) => Promise<void>;
+  enable: (name: string, force?: boolean) => Promise<void>;
+  disable: (name: string) => Promise<void>;
+  uninstall: (name: string) => Promise<void>;
+  cancelPending: () => void;
+}
+
+export const imageKey = (m: { name: string; version: string; image: string | null }) =>
+  `${m.name}|${m.version}|${m.image ?? ""}`;
+
+const withoutImages = (images: Record<string, string | null>, name: string) =>
+  Object.fromEntries(Object.entries(images).filter(([k]) => !k.startsWith(`${name}|`)));
+
+const imagesPending = new Set<string>();
+const imageQueue: (() => Promise<void>)[] = [];
+let imagesRunning = 0;
+
+function pumpImages() {
+  while (imagesRunning < 2 && imageQueue.length > 0) {
+    const job = imageQueue.shift();
+    if (!job) break;
+    imagesRunning += 1;
+    void job().finally(() => {
+      imagesRunning -= 1;
+      pumpImages();
+    });
+  }
+}
+
+export const useMods = create<ModsState>((set, get) => {
+  let depth = 0;
+  const begin = () => {
+    depth += 1;
+    set({ busy: true });
+  };
+  const end = () => {
+    depth = Math.max(0, depth - 1);
+    set({ busy: depth > 0 });
+  };
+
+  async function withExport(action: () => Promise<void>) {
+    set({ exporting: { done: 0, total: 0 } });
+    let stop = () => {};
+    try {
+      stop = await listen<{ done: number; total: number }>("export-progress", (e) => set({ exporting: e.payload }));
+      await action();
+    } finally {
+      stop();
+      set({ exporting: null });
+    }
+  }
+
+  async function run(action: () => Promise<void>) {
+    begin();
+    try {
+      await action();
+    } catch (e) {
+      useErrors.getState().report(e);
+    } finally {
+      end();
+    }
+  }
+
+  return {
+    mods: [],
+    external: [],
+    busy: false,
+    begin,
+    end,
+    pending: null,
+    images: {},
+    detail: null,
+    notice: null,
+    exporting: null,
+    skipped: [],
+    ignored: [],
+    clearIgnored: () => set({ ignored: [] }),
+    clearSkipped: () => set({ skipped: [] }),
+    selected: [],
+
+    setSelected: (keys) => set({ selected: keys }),
+
+    toggleSelected: (key) =>
+      set((s) => ({ selected: s.selected.includes(key) ? s.selected.filter((k) => k !== key) : [...s.selected, key] })),
+
+    loadImage: (mod) =>
+      new Promise<void>((resolve) => {
+        const key = imageKey(mod);
+        const name = mod.name;
+        if (key in get().images || imagesPending.has(key)) {
+          resolve();
+          return;
+        }
+        imagesPending.add(key);
+        imageQueue.push(async () => {
+          let url: string | null | undefined;
+          try {
+            url = await ipc.modThumb(name);
+            if (!url) {
+              const full = await ipc.modImage(name);
+              const thumb = full ? await makeThumb(full).catch(() => null) : null;
+              if (full && thumb) void ipc.saveModThumb(name, thumb).catch(() => {});
+              url = thumb ?? full;
+            }
+          } catch {
+            url = undefined;
+          }
+          imagesPending.delete(key);
+          if (url !== undefined) set((s) => ({ images: { ...s.images, [key]: url } }));
+          resolve();
+        });
+        pumpImages();
+      }),
+
+    openDetail: (name) => set({ detail: name }),
+
+    saveInfo: (name, description, version, imagePath) =>
+      run(async () => {
+        await ipc.setModInfo(name, description, version, imagePath);
+        set((s) => ({ images: withoutImages(s.images, name) }));
+        await get().refresh();
+        const fresh = get().mods.find((m) => m.name === name);
+        if (fresh) await get().loadImage(fresh);
+      }),
+
+    exportOne: (name, dest) =>
+      run(async () => {
+        await withExport(() => ipc.exportMod(name, dest));
+        set({ notice: dest });
+      }),
+
+    exportAll: (dest) =>
+      run(async () => {
+        await withExport(() =>
+          ipc.exportPack(
+            get().mods.map((m) => m.name),
+            dest,
+          ),
+        );
+        set({ notice: dest });
+      }),
+
+    exportSome: (names, dest) =>
+      run(async () => {
+        await withExport(() => ipc.exportPack(names, dest));
+        set({ notice: dest });
+      }),
+
+    bulkDisable: (names) =>
+      run(async () => {
+        try {
+          for (const name of names) await ipc.disableMod(name);
+        } finally {
+          await get().refresh();
+        }
+      }),
+
+    bulkUninstall: (names) =>
+      run(async () => {
+        try {
+          for (const name of names) {
+            await ipc.uninstallMod(name);
+            set((s) => ({ images: withoutImages(s.images, name), detail: s.detail === name ? null : s.detail }));
+          }
+        } finally {
+          await get().refresh();
+        }
+      }),
+
+    bulkImport: (names) =>
+      run(async () => {
+        try {
+          for (const name of names) await ipc.importMod(name);
+        } finally {
+          await get().refresh();
+        }
+      }),
+
+    bulkEnable: async (names) => {
+      begin();
+      const conflicted: { name: string; conflicts: Conflict[] }[] = [];
+      try {
+        for (const name of names) {
+          try {
+            await ipc.enableMod(name, false);
+          } catch (e) {
+            const a = toAppError(e);
+            if (a.code === "conflict" && a.details) conflicted.push({ name, conflicts: a.details });
+            else throw e;
+          }
+        }
+        await get().refresh();
+        if (conflicted.length > 0) {
+          const seen = new Set<string>();
+          const merged = conflicted
+            .flatMap((c) => c.conflicts)
+            .filter((c) => {
+              const key = `${c.file}|${c.owner ?? ""}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+          set({
+            pending: {
+              name: translate("mods.countMods", { count: conflicted.length }),
+              conflicts: merged,
+              retry: async () => {
+                begin();
+                try {
+                  for (const c of conflicted) await ipc.enableMod(c.name, true);
+                  set({ pending: null });
+                } catch (e) {
+                  useErrors.getState().report(e);
+                } finally {
+                  await get().refresh();
+                  end();
+                }
+              },
+            },
+          });
+        }
+      } catch (e) {
+        useErrors.getState().report(e);
+        await get().refresh();
+      } finally {
+        end();
+      }
+    },
+
+    clearNotice: () => set({ notice: null }),
+
+    refresh: async () => {
+      try {
+        let again = 0;
+        for (;;) {
+          try {
+            const [mods, external] = await Promise.all([ipc.listMods(), ipc.scanExternal()]);
+            set({ mods, external });
+            return;
+          } catch (e) {
+            if (toAppError(e).code !== "game_not_found" || again >= 2) throw e;
+            again += 1;
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        }
+      } catch (e) {
+        if (toAppError(e).code === "game_not_found") {
+          set({ mods: [], external: [] });
+        } else {
+          useErrors.getState().report(e);
+        }
+      }
+    },
+
+    install: (paths) =>
+      run(async () => {
+        const skipped: string[] = [];
+        const ignored: string[] = [];
+        try {
+          for (const path of paths) {
+            const name = modNameFromPath(
+              path,
+              get().mods.map((m) => m.name),
+            );
+            const done = await ipc.installMod(path, name);
+            skipped.push(...done.skipped);
+            ignored.push(...(done.ignored ?? []));
+            await get().refresh();
+          }
+        } finally {
+          set({ skipped, ignored });
+        }
+      }),
+
+    importExternal: (name) =>
+      run(async () => {
+        await ipc.importMod(name);
+        await get().refresh();
+      }),
+
+    enable: async (name, force = false) => {
+      begin();
+      try {
+        await ipc.enableMod(name, force);
+        set({ pending: null });
+        await get().refresh();
+      } catch (e) {
+        const a = toAppError(e);
+        if (a.code === "conflict" && a.details) {
+          set({ pending: { name, conflicts: a.details } });
+        } else {
+          useErrors.getState().report(e);
+        }
+      } finally {
+        end();
+      }
+    },
+
+    disable: (name) =>
+      run(async () => {
+        await ipc.disableMod(name);
+        await get().refresh();
+      }),
+
+    uninstall: (name) =>
+      run(async () => {
+        await ipc.uninstallMod(name);
+        set((s) => ({ images: withoutImages(s.images, name), detail: s.detail === name ? null : s.detail }));
+        await get().refresh();
+      }),
+
+    cancelPending: () => set({ pending: null }),
+  };
+});

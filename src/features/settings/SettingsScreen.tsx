@@ -1,0 +1,176 @@
+import { useEffect, useState } from "react";
+import { FolderOpen, Sparkles } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import clsx from "clsx";
+import { useLocale, useT, type LocaleChoice, type MessageKey } from "../../i18n";
+import { LOCALES, LOCALE_NAMES } from "../../i18n/locale";
+import { Dropdown } from "../../components/Dropdown";
+import { Logo } from "../../brand/Logo";
+import { ipc, type AppInfo } from "../../lib/ipc";
+import { useSettings, type AutoTranslate, type Motion } from "../../stores/settings";
+import { NexusSection } from "./NexusSection";
+import { useOnboarding } from "../../stores/onboarding";
+import { NxmSection } from "./NxmSection";
+import { ModUpdatesSection } from "./ModUpdatesSection";
+import { Segmented } from "./Segmented";
+import { ThemePicker } from "./ThemePicker";
+import { UpdateSection } from "./UpdateSection";
+
+const translates: { value: AutoTranslate; label: MessageKey }[] = [
+  { value: "ask", label: "translate.optAsk" },
+  { value: "on", label: "translate.optOn" },
+  { value: "off", label: "translate.optOff" },
+];
+
+const motions: { value: Motion; label: MessageKey }[] = [
+  { value: "system", label: "motion.system" },
+  { value: "full", label: "motion.full" },
+  { value: "reduced", label: "motion.reduced" },
+];
+
+export function SettingsScreen() {
+  const t = useT();
+  const motion = useSettings((s) => s.motion);
+  const setMotion = useSettings((s) => s.setMotion);
+  const translate = useSettings((s) => s.translate);
+  const setTranslate = useSettings((s) => s.setTranslate);
+  const translateLang = useSettings((s) => s.translateLang);
+  const setTranslateLang = useSettings((s) => s.setTranslateLang);
+  const gameDir = useSettings((s) => s.gameDir);
+  const detected = useSettings((s) => s.detected);
+  const invalid = useSettings((s) => s.invalid);
+  const chooseGame = useSettings((s) => s.chooseGame);
+  const choice = useLocale((s) => s.choice);
+  const setChoice = useLocale((s) => s.setChoice);
+
+  const [info, setInfo] = useState<AppInfo | null>(null);
+
+  useEffect(() => {
+    ipc.appInfo().then(setInfo).catch(() => {});
+  }, []);
+
+  async function browse() {
+    const chosen = await open({ directory: true });
+    if (typeof chosen === "string") await chooseGame(chosen);
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 pb-10">
+    <div className="flex flex-col gap-5">
+      <header className="flex flex-col items-center gap-1 pb-2 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">{t("settings.title")}</h1>
+        <p className="text-sm text-muted">{t("settings.subtitle")}</p>
+      </header>
+
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
+        <h2 className="text-base font-semibold">{t("settings.gameFolder")}</h2>
+        <div className="flex items-center gap-3">
+          <code className="min-w-0 flex-1 truncate rounded border border-line bg-surface px-3 py-2">
+            {gameDir ?? t("settings.notSet")}
+          </code>
+          <button onClick={browse} className="btn">
+            <FolderOpen size={15} />
+            {t("settings.browse")}
+          </button>
+        </div>
+        {invalid && <p className="text-danger">{t("settings.invalid")}</p>}
+        {detected.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-muted">{t("settings.detected")}</span>
+            {detected.map((d) => (
+              <button
+                key={d}
+                onClick={() => chooseGame(d)}
+                className={clsx(
+                  "truncate rounded border px-3 py-2 text-left hover:bg-surface-2",
+                  d === gameDir ? "border-accent" : "border-line",
+                )}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
+        <h2 className="text-base font-semibold">{t("settings.language")}</h2>
+        <Dropdown
+          className="w-72"
+          value={choice as string}
+          onChange={(v) => setChoice(v as LocaleChoice)}
+          ariaLabel={t("settings.language")}
+          options={[{ value: "auto", label: t("settings.languageAuto") }, ...LOCALES.map((l) => ({ value: l as string, label: LOCALE_NAMES[l] }))]}
+        />
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
+        <h2 className="text-base font-semibold">{t("settings.theme")}</h2>
+        <ThemePicker />
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
+        <h2 className="text-base font-semibold">{t("settings.motion")}</h2>
+        <Segmented value={motion} options={motions.map((o) => ({ value: o.value, label: t(o.label) }))} onChange={setMotion} />
+        <p className="text-xs text-muted">{t("settings.motionHint")}</p>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
+        <h2 className="text-base font-semibold">{t("translate.title")}</h2>
+        <Segmented value={translate} options={translates.map((o) => ({ value: o.value, label: t(o.label) }))} onChange={setTranslate} />
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted">{t("translate.into")}</span>
+          <Dropdown
+            className="w-72"
+            value={translateLang}
+            onChange={setTranslateLang}
+            ariaLabel={t("translate.into")}
+            options={[{ value: "app", label: t("translate.sameAsApp") }, ...LOCALES.map((l) => ({ value: l as string, label: LOCALE_NAMES[l] }))]}
+          />
+        </label>
+        <p className="text-xs text-muted">{t("translate.hint")}</p>
+        <p className="text-xs text-muted">{t("translate.byGoogle")}</p>
+      </section>
+
+      <button
+        className="flex items-center gap-3 rounded-xl border border-line bg-surface p-5 text-left font-medium hover:border-accent/50"
+        onClick={() => useOnboarding.getState().show()}
+      >
+        <Sparkles size={18} className="text-accent" />
+        {t("onboard.replay")}
+      </button>
+
+      <NexusSection />
+      <NxmSection />
+      <ModUpdatesSection />
+      <UpdateSection />
+    </div>
+
+      {info && (
+        <footer className="mx-auto flex w-full max-w-xl flex-col items-center gap-3 border-t border-line pt-8 text-center">
+          <Logo size={30} className="text-accent" />
+          <div className="flex items-center gap-2">
+            <span className="text-base font-semibold">CP2077 Mod Launcher</span>
+            <span className="rounded bg-accent px-1.5 py-0.5 text-xs font-medium text-accent-ink">{t("settings.beta")}</span>
+          </div>
+          <span className="text-xs text-muted">
+            {t("settings.appVersion")} {info.version.split("-")[0]}
+          </span>
+          <p className="max-w-md text-xs leading-relaxed text-muted">{t("settings.betaNote")}</p>
+          <p className="max-w-md rounded-lg border border-line bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
+            {t("settings.unofficial")}
+          </p>
+          <button
+            onClick={() => void ipc.openUrl("https://github.com/This-null/cyberpunk-modloader")}
+            className="text-xs text-accent hover:underline"
+          >
+            GitHub · {t("nav.openSource")}
+          </button>
+          <span className="break-all text-[11px] text-muted/70">
+            {t("settings.dataFolder")}: {info.data_dir}
+          </span>
+        </footer>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CP2077 Mod Launcher",
+  "version": "0.0.9-beta",
+  "identifier": "com.skydev.cp2077modlauncher",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "CP2077 Mod Launcher",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 620,
+        "resizable": true,
+        "decorations": false,
+        "shadow": true,
+        "center": true,
+        "dragDropEnabled": true,
+        "zoomHotkeysEnabled": false,
+        "backgroundColor": "#16171a"
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: https://*.nexusmods.com",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-src": "'none'",
+        "form-action": "'none'"
+      },
+      "devCsp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": true,
+        "languages": [
+          "English",
+          "Russian",
+          "Spanish",
+          "PortugueseBR",
+          "French",
+          "Turkish",
+          "Polish",
+          "German"
+        ],
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
+        "startMenuFolder": "Skydev"
+      }
+    },
+    "publisher": "Skydev",
+    "shortDescription": "Mod launcher for Cyberpunk 2077",
+    "category": "Game",
+    "licenseFile": "installer/license.txt",
+    "copyright": "Copyright (c) 2026 Skydev",
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVBQzFCMENCOTVGMEFGM0EKUldRNnIvQ1Z5N0RCV20ycVFoSENZSThYWkxxNHNsYmZ6R1c1REl6SXNadzRGalZDZENsRXRhUHEK",
+      "endpoints": [
+        "https://github.com/This-null/cyberpunk-modloader/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

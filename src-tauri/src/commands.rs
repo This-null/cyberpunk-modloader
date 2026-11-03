@@ -1,0 +1,2207 @@
+use crate::archive;
+use crate::crash;
+use crate::error::AppError;
+use crate::fomod;
+use crate::game;
+use crate::library::{self, Library, ModRecord};
+use crate::report::{self, ReportInput};
+use crate::logs::{self, Chunk, LogFile};
+use crate::nexus;
+use crate::nightcoop::{self, Endpoint, ReleaseView};
+use crate::nxm;
+use crate::parity;
+use crate::presets;
+use crate::profile;
+use crate::scan::{self, ExternalMod};
+use crate::version::{self, BuildInfo, Detected};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+pub struct AppState {
+    pub data: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct Settings {
+    game_dir: Option<String>,
+    #[serde(default)]
+    locale: Option<String>,
+    #[serde(default)]
+    theme: Option<String>,
+    #[serde(default)]
+    motion: Option<String>,
+    #[serde(default)]
+    translate: Option<String>,
+    #[serde(default)]
+    updates: Option<String>,
+    #[serde(default)]
+    translate_lang: Option<String>,
+    #[serde(default)]
+    install_id: Option<String>,
+    #[serde(default)]
+    mod_updates: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct Prefs {
+    locale: Option<String>,
+    theme: Option<String>,
+    motion: Option<String>,
+    translate: Option<String>,
+    updates: Option<String>,
+    translate_lang: Option<String>,
+    mod_updates: Option<String>,
+}
+
+pub fn write_atomic(path: PathBuf, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let mut tmp = path.clone().into_os_string();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, contents)?;
+    fs::rename(&tmp, &path)
+}
+
+fn same_dir(a: &str, b: &str) -> bool {
+    let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_ascii_lowercase();
+    norm(a) == norm(b)
+}
+
+fn settings_path(data: &Path) -> PathBuf {
+    data.join("settings.json")
+}
+
+fn load_settings(data: &Path) -> Settings {
+    let path = settings_path(data);
+    for attempt in 0..6 {
+        match fs::read_to_string(&path) {
+            Ok(text) => {
+                if let Ok(parsed) = serde_json::from_str(&text) {
+                    return parsed;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !path.with_extension("tmp").exists() => break,
+            Err(_) => {}
+        }
+        if attempt < 5 {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    }
+    Settings::default()
+}
+
+fn save_settings(data: &Path, s: &Settings) -> Result<(), AppError> {
+    fs::create_dir_all(data)?;
+    let text = serde_json::to_string_pretty(s).map_err(|e| AppError::State(e.to_string()))?;
+    write_atomic(settings_path(data), text)?;
+    Ok(())
+}
+
+fn library(state: &AppState) -> Result<Library, AppError> {
+    let game = load_settings(&state.data)
+        .game_dir
+        .ok_or(AppError::GameNotFound)?;
+    Ok(Library::new(state.data.join("mod_library"), PathBuf::from(game)))
+}
+
+pub fn guard_not_running(running: bool) -> Result<(), AppError> {
+    if running {
+        Err(AppError::GameRunning)
+    } else {
+        Ok(())
+    }
+}
+
+fn logged<T>(r: Result<T, AppError>) -> Result<T, AppError> {
+    if let Err(e) = &r {
+        tracing::error!("{}", crate::report::redact_tokens(&e.to_string()));
+    }
+    r
+}
+
+pub fn tail_lines(text: &str, n: usize) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].iter().map(|l| l.to_string()).collect()
+}
+
+fn newest_log_tail(data: &Path, n: usize) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(data.join("logs")) else {
+        return Vec::new();
+    };
+    let newest = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .max_by_key(|(t, _)| *t);
+    match newest.and_then(|(_, p)| fs::read_to_string(p).ok()) {
+        Some(text) => tail_lines(&text, n),
+        None => Vec::new(),
+    }
+}
+
+#[tauri::command]
+pub fn detect_games() -> Vec<String> {
+    game::find_game_dirs()
+        .into_iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
+}
+
+#[tauri::command]
+pub fn get_game_dir(state: State<'_, AppState>) -> Option<String> {
+    load_settings(&state.data).game_dir
+}
+
+#[tauri::command]
+pub fn get_prefs(state: State<'_, AppState>) -> Prefs {
+    let s = load_settings(&state.data);
+    Prefs { locale: s.locale, theme: s.theme, motion: s.motion, translate: s.translate, updates: s.updates, translate_lang: s.translate_lang, mod_updates: s.mod_updates }
+}
+
+#[tauri::command]
+pub fn set_prefs(
+    state: State<'_, AppState>,
+    locale: String,
+    theme: String,
+    motion: String,
+    translate: String,
+    updates: String,
+    translate_lang: String,
+    mod_updates: String,
+) -> Result<(), AppError> {
+    const LOCALES: [&str; 9] = ["auto", "en", "tr", "ru", "es", "pt-BR", "fr", "pl", "de"];
+    if !LOCALES.contains(&locale.as_str())
+        || !["system", "dark", "light", "midnight", "ocean", "mocha", "aurora", "sunset", "neon", "emerald"].contains(&theme.as_str())
+        || !["system", "full", "reduced"].contains(&motion.as_str())
+        || !["ask", "on", "off"].contains(&translate.as_str())
+        || !["on", "off"].contains(&updates.as_str())
+        || !(translate_lang == "app" || LOCALES[1..].contains(&translate_lang.as_str()))
+        || !["manual", "auto"].contains(&mod_updates.as_str())
+    {
+        return Err(AppError::State("unknown preference".into()));
+    }
+    let mut s = load_settings(&state.data);
+    s.locale = Some(locale);
+    s.theme = Some(theme);
+    s.motion = Some(motion);
+    s.translate = Some(translate);
+    s.updates = Some(updates);
+    s.translate_lang = Some(translate_lang);
+    s.mod_updates = Some(mod_updates);
+    save_settings(&state.data, &s)
+}
+
+#[tauri::command]
+pub fn set_game_dir(state: State<'_, AppState>, path: String) -> Result<(), AppError> {
+    if !game::is_valid_game_dir(Path::new(&path)) {
+        return logged(Err(AppError::GameNotFound));
+    }
+    let mut s = load_settings(&state.data);
+    if let Some(old) = &s.game_dir {
+        if !same_dir(old, &path) {
+            if let Ok(lib) = library(&state) {
+                if lib.list()?.iter().any(|m| m.enabled) {
+                    return logged(Err(AppError::ModsEnabled));
+                }
+            }
+        }
+    }
+    s.game_dir = Some(path);
+    logged(save_settings(&state.data, &s))
+}
+
+#[tauri::command]
+pub fn game_running() -> bool {
+    game::is_game_running()
+}
+
+#[tauri::command]
+pub fn game_version(state: State<'_, AppState>) -> Option<String> {
+    let lib = library(&state).ok()?;
+    crate::frameworks::file_version(&lib.game_dir().join("bin").join("x64").join("Cyberpunk2077.exe"))
+}
+
+#[tauri::command]
+pub fn game_patch_time(state: State<'_, AppState>) -> Option<u64> {
+    let lib = library(&state).ok()?;
+    let modified = fs::metadata(lib.game_dir().join("bin").join("x64").join("Cyberpunk2077.exe")).ok()?.modified().ok()?;
+    modified.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+}
+
+#[tauri::command]
+pub fn launch_game(state: State<'_, AppState>) -> Result<(), AppError> {
+    if game::is_game_running() {
+        return Ok(());
+    }
+    let dir = library(&state)?.game_dir().to_path_buf();
+    let exe = dir.join("bin").join("x64").join("Cyberpunk2077.exe");
+    if !exe.is_file() {
+        return logged(Err(AppError::NotFound("game executable".into())));
+    }
+    let started = if dir.to_string_lossy().to_ascii_lowercase().contains("steamapps") {
+        std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", "steam://rungameid/1091500"]).spawn()
+    } else {
+        std::process::Command::new(&exe).current_dir(exe.parent().unwrap_or(&dir)).spawn()
+    };
+    logged(started.map(|_| ()).map_err(|e| AppError::Io(e.to_string())))
+}
+
+#[tauri::command]
+pub fn framework_status(state: State<'_, AppState>) -> Result<crate::frameworks::FrameworkReport, AppError> {
+    let lib = library(&state)?;
+    Ok(crate::frameworks::check(lib.game_dir()))
+}
+
+#[tauri::command]
+pub fn framework_plan(state: State<'_, AppState>, id: String) -> Result<Vec<String>, AppError> {
+    let lib = library(&state)?;
+    Ok(crate::frameworks::removal_plan(lib.game_dir(), &id))
+}
+
+#[tauri::command]
+pub fn framework_remove(state: State<'_, AppState>, id: String) -> Result<u32, AppError> {
+    if game::is_game_running() {
+        return logged(Err(AppError::GameRunning));
+    }
+    let lib = library(&state)?;
+    let game_dir = lib.game_dir().to_path_buf();
+    let targets = crate::frameworks::removal_targets(&game_dir, &id);
+    let owner = lib.list()?.into_iter().filter(|r| r.enabled).find(|r| {
+        r.installed_files.iter().any(|f| {
+            let full = game_dir.join(f);
+            targets.iter().any(|t| full == *t || full.starts_with(t))
+        })
+    });
+    if let Some(rec) = owner {
+        return logged(Err(AppError::Owned(rec.name)));
+    }
+    let mut removed = 0;
+    for t in &targets {
+        let done = if t.is_dir() { fs::remove_dir_all(t) } else { fs::remove_file(t) };
+        match done {
+            Ok(()) => removed += 1,
+            Err(e) => return logged(Err(AppError::FilesInUse(format!("{}: {e}", t.display())))),
+        }
+    }
+    Ok(removed)
+}
+
+#[tauri::command]
+pub fn list_mods(state: State<'_, AppState>) -> Result<Vec<ModRecord>, AppError> {
+    logged(library(&state)?.list())
+}
+
+#[tauri::command]
+pub fn mod_health(state: State<'_, AppState>) -> Result<Vec<crate::library::Health>, AppError> {
+    logged(library(&state)?.health())
+}
+
+#[tauri::command]
+pub fn scan_external(state: State<'_, AppState>) -> Result<Vec<ExternalMod>, AppError> {
+    let lib = library(&state)?;
+    let records = lib.list()?;
+    Ok(scan::scan_external(lib.game_dir(), &records))
+}
+
+#[tauri::command]
+pub fn import_mod(state: State<'_, AppState>, name: String) -> Result<ModRecord, AppError> {
+    let lib = library(&state)?;
+    let records = lib.list()?;
+    let found = scan::scan_external(lib.game_dir(), &records)
+        .into_iter()
+        .find(|m| m.name == name)
+        .ok_or_else(|| AppError::NotFound(name.clone()))?;
+    logged(lib.adopt(&found.name, &found.files))
+}
+
+#[derive(Serialize)]
+pub struct NcData {
+    updated: String,
+    latest: String,
+    releases: Vec<ReleaseView>,
+    offline: bool,
+}
+
+fn nc_cache(data: &Path) -> PathBuf {
+    data.join("nightcoop-releases.json")
+}
+
+fn nc_data(view: nightcoop::ReleasesView, offline: bool) -> NcData {
+    NcData {
+        updated: view.updated,
+        latest: view.latest,
+        releases: view.releases,
+        offline,
+    }
+}
+
+#[tauri::command]
+pub async fn nc_fetch(state: State<'_, AppState>, lang: String) -> Result<NcData, AppError> {
+    let data = state.data.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let endpoint = Endpoint::official();
+        let fresh = nightcoop::fetch_text(&endpoint, nightcoop::RELEASES_PATH)
+            .and_then(|text| nightcoop::parse_releases(&text).map(|r| (text, r)));
+        match fresh {
+            Ok((text, releases)) => {
+                let _ = write_atomic(nc_cache(&data), text);
+                Ok(nc_data(nightcoop::to_view(&releases, &lang), false))
+            }
+            Err(e) => {
+                tracing::warn!("{e}");
+                let text = fs::read_to_string(nc_cache(&data)).map_err(|_| e)?;
+                let releases = nightcoop::parse_releases(&text)?;
+                Ok(nc_data(nightcoop::to_view(&releases, &lang), true))
+            }
+        }
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn nc_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    version: String,
+    lang: String,
+    force: bool,
+) -> Result<(), AppError> {
+    guard_not_running(game::is_game_running())?;
+    let data = state.data.clone();
+    let lib = library(&state)?;
+    let outcome = tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
+        let endpoint = Endpoint::official();
+        let text = nightcoop::fetch_text(&endpoint, nightcoop::RELEASES_PATH)?;
+        let releases = nightcoop::parse_releases(&text)?;
+        let release = releases
+            .releases
+            .iter()
+            .find(|r| r.version == version)
+            .ok_or_else(|| AppError::ReleaseNotFound(version.clone()))?;
+        let view = nightcoop::to_view(&releases, &lang);
+        let shown = view
+            .releases
+            .iter()
+            .find(|r| r.version == version)
+            .ok_or_else(|| AppError::ReleaseNotFound(version.clone()))?;
+        if let Some(reason) = &shown.yanked {
+            return Err(AppError::Withdrawn(reason.clone()));
+        }
+        let file = nightcoop::mod_file(release).ok_or_else(|| AppError::ReleaseNotFound(version.clone()))?;
+        let safe_name = !file.name.is_empty()
+            && file
+                .name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-+".contains(c))
+            && !file.name.contains("..");
+        if !safe_name {
+            return Err(AppError::UnsafePath(file.name.clone()));
+        }
+        let name = format!("NightCoop {version}");
+        if !lib.list()?.iter().any(|r| r.name == name) {
+            let dest = data.join("downloads").join(&file.name);
+            let mut last = u64::MAX;
+            let mut progress = |done: u64, total: u64| {
+                let pct = if total == 0 { 0 } else { done * 100 / total };
+                if pct != last {
+                    last = pct;
+                    let _ = app.emit("nc-progress", serde_json::json!({ "done": done, "total": total }));
+                }
+            };
+            nightcoop::download(&endpoint, &file.url, &dest, file.size, &file.sha256, &mut progress)?;
+            let installed = lib.install_any(&dest, &name);
+            let _ = fs::remove_file(&dest);
+            installed?;
+            lib.tag_record(&name, "nightcoop", &version, &shown.title)?;
+        }
+        lib.activate_exclusive(&name, force)
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    match outcome {
+        Err(AppError::Conflict(list)) => Err(AppError::Conflict(list)),
+        other => logged(other),
+    }
+}
+
+pub struct NexusState {
+    pub store: Box<dyn nexus::KeyStore>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct NexusUser {
+    name: String,
+    is_premium: bool,
+    is_supporter: bool,
+}
+
+#[derive(Serialize)]
+pub struct NexusStatus {
+    connected: bool,
+    user: Option<NexusUser>,
+}
+
+fn nexus_user_path(data: &Path) -> PathBuf {
+    data.join("nexus-user.json")
+}
+
+fn nexus_cache_path(data: &Path) -> PathBuf {
+    data.join("nexus-cache.json")
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn load_nexus_user(data: &Path) -> Option<NexusUser> {
+    fs::read_to_string(nexus_user_path(data))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+}
+
+fn load_nexus_cache(data: &Path) -> nexus::Cache {
+    fs::read_to_string(nexus_cache_path(data))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+pub fn allowed_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let clean = url.len() <= 300 && !url.chars().any(|c| c.is_control() || c.is_whitespace());
+    let repo = url.starts_with("https://github.com/This-null/");
+    let discord = url == "https://discord.gg/EaNcFyCEqP";
+    clean && (["www.nexusmods.com", "nexusmods.com", "nightcoop.net"].contains(&host) || repo || discord)
+}
+
+fn nexus_page(url: &str) -> bool {
+    let host = url.strip_prefix("https://").map(|r| r.split(['/', '?', '#']).next().unwrap_or("")).unwrap_or("");
+    allowed_url(url) && matches!(host, "www.nexusmods.com" | "nexusmods.com")
+}
+
+static NEXUS_QUEUE: std::sync::Mutex<std::collections::VecDeque<String>> = std::sync::Mutex::new(std::collections::VecDeque::new());
+static NEXT_LABEL: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+const NEXUS_BAR: &str = r#"(function(){
+if(window.top!==window)return;
+if(!/(^|\.)nexusmods\.com$/.test(location.hostname))return;
+function build(){
+if(document.getElementById('cp-bar')||!document.documentElement)return;
+var bar=document.createElement('div');bar.id='cp-bar';
+bar.style.cssText='position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:2147483647;display:flex;gap:6px;padding:6px;background:#15171c;border:1px solid #3a3f4b;font:600 13px system-ui,sans-serif;color:#e8eaf0;box-shadow:0 6px 24px rgba(0,0,0,.5)';
+function btn(t,f){var b=document.createElement('button');b.textContent=t;b.style.cssText='background:#232733;color:inherit;border:1px solid #3a3f4b;padding:6px 12px;cursor:pointer;font:inherit';b.onclick=f;return b;}
+bar.appendChild(btn('←',function(){history.back();}));
+bar.appendChild(btn('→',function(){history.forward();}));
+bar.appendChild(btn('⟳',function(){location.reload();}));
+var n=btn('',function(){location.href='https://launcher-next.invalid/';});
+n.id='cp-next';n.style.display='none';n.style.background='#f0c63c';n.style.color='#111';n.style.borderColor='#f0c63c';
+bar.appendChild(n);
+document.documentElement.appendChild(bar);
+}
+window.__cpq=function(c,l){build();var b=document.getElementById('cp-next');if(!b)return;if(c>0){b.style.display='';b.textContent=String(l).replace('{n}',c);}else{b.style.display='none';}};
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',build);else build();
+})();"#;
+
+fn advance_nexus(app: &AppHandle) -> bool {
+    let next = NEXUS_QUEUE.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+    let Some(next) = next else { return false };
+    let Ok(parsed) = next.parse::<tauri::Url>() else { return false };
+    match app.get_webview_window("nexus") {
+        Some(w) => w.navigate(parsed).is_ok(),
+        None => false,
+    }
+}
+
+fn finish_nexus(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if advance_nexus(&app) {
+            return;
+        }
+        if let Some(w) = app.get_webview_window("nexus") {
+            let _ = w.destroy();
+        }
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.unminimize();
+            let _ = main.set_focus();
+        }
+    });
+}
+
+#[tauri::command]
+pub async fn open_nexus_window(
+    app: AppHandle,
+    url: String,
+    queue: Option<Vec<String>>,
+    next_label: Option<String>,
+) -> Result<(), AppError> {
+    if !nexus_page(&url) {
+        return Err(AppError::BadLink(url.chars().take(80).collect()));
+    }
+    let parsed: tauri::Url = url.parse().map_err(|_| AppError::BadLink(url.chars().take(80).collect()))?;
+    {
+        let mut q = NEXUS_QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+        q.clear();
+        for next in queue.unwrap_or_default().into_iter().take(12) {
+            if nexus_page(&next) && next != url && !q.contains(&next) {
+                q.push_back(next);
+            }
+        }
+        *NEXT_LABEL.lock().unwrap_or_else(|e| e.into_inner()) = next_label.unwrap_or_default().chars().take(60).collect();
+    }
+    if let Some(old) = app.get_webview_window("nexus") {
+        let _ = old.navigate(parsed);
+        let _ = old.unminimize();
+        let _ = old.set_focus();
+        return Ok(());
+    }
+    let handle = app.clone();
+    let built = tauri::WebviewWindowBuilder::new(&app, "nexus", tauri::WebviewUrl::External(parsed))
+        .title("Nexus Mods")
+        .inner_size(1120.0, 800.0)
+        .center()
+        .on_download({
+            let handle = app.clone();
+            move |_, event| {
+                if let tauri::webview::DownloadEvent::Requested { url, destination } = event {
+                    if nexus::allowed_download_host(url.as_str()) {
+                        let app = handle.clone();
+                        let url = url.clone();
+                        let suggested = destination.file_name().map(|n| n.to_string_lossy().into_owned());
+                        std::thread::spawn(move || run_web_download(app, url, suggested));
+                        finish_nexus(&handle);
+                        return false;
+                    }
+                    let host = url.host_str().unwrap_or("").to_string();
+                    let id = WEB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let err = serde_json::to_value(AppError::UntrustedHost(host.clone())).ok();
+                    let _ = handle.emit("web-download", serde_json::json!({ "id": id, "phase": "error", "name": host, "done": 0, "total": 0, "error": err }));
+                    return false;
+                }
+                true
+            }
+        })
+        .initialization_script(NEXUS_BAR)
+        .on_page_load(|win, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                let left = NEXUS_QUEUE.lock().unwrap_or_else(|e| e.into_inner()).len();
+                let label = NEXT_LABEL.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let label = serde_json::to_string(&label).unwrap_or_else(|_| "\"\"".into());
+                let _ = win.eval(format!("window.__cpq&&window.__cpq({left},{label})"));
+            }
+        })
+        .on_navigation(move |target| {
+            if target.scheme().eq_ignore_ascii_case("nxm") {
+                if let Ok(link) = crate::nxm::parse(target.as_str()) {
+                    let _ = handle.emit("nxm-link", link);
+                }
+                finish_nexus(&handle);
+                return false;
+            }
+            if target.host_str() == Some("launcher-next.invalid") {
+                let app = handle.clone();
+                std::thread::spawn(move || {
+                    advance_nexus(&app);
+                });
+                return false;
+            }
+            true
+        })
+        .build();
+    logged(built.map(|_| ()).map_err(|e| AppError::Io(e.to_string())))
+}
+
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), AppError> {
+    if !allowed_url(&url) {
+        return Err(AppError::BadLink(url.chars().take(80).collect()));
+    }
+    let _ = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &url])
+        .spawn();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn nexus_status(state: State<'_, AppState>, nx: State<'_, NexusState>) -> Result<NexusStatus, AppError> {
+    let connected = nx.store.get()?.is_some();
+    Ok(NexusStatus {
+        connected,
+        user: if connected { load_nexus_user(&state.data) } else { None },
+    })
+}
+
+#[tauri::command]
+pub async fn nexus_connect(
+    state: State<'_, AppState>,
+    nx: State<'_, NexusState>,
+    key: String,
+) -> Result<NexusStatus, AppError> {
+    let key = key.trim().to_string();
+    if !nexus::valid_key(&key) {
+        return logged(Err(AppError::NexusKey));
+    }
+    let probe = key.clone();
+    let user = tauri::async_runtime::spawn_blocking(move || nexus::validate(&nexus::Api::official(), &probe))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    let user = logged(user)?;
+    nx.store.set(&key)?;
+    let user = NexusUser {
+        name: user.name,
+        is_premium: user.is_premium,
+        is_supporter: user.is_supporter,
+    };
+    if let Ok(text) = serde_json::to_string(&user) {
+        let _ = write_atomic(nexus_user_path(&state.data), text);
+    }
+    Ok(NexusStatus {
+        connected: true,
+        user: Some(user),
+    })
+}
+
+#[tauri::command]
+pub fn nexus_disconnect(state: State<'_, AppState>, nx: State<'_, NexusState>) -> Result<(), AppError> {
+    nx.store.delete()?;
+    let _ = fs::remove_file(nexus_user_path(&state.data));
+    let _ = fs::remove_file(nexus_cache_path(&state.data));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn nexus_link(state: State<'_, AppState>, name: String, target: String) -> Result<ModRecord, AppError> {
+    let id = nexus::parse_target(&target)
+        .ok_or_else(|| AppError::BadLink(target.chars().take(80).collect()))?;
+    logged(library(&state)?.set_nexus_id(&name, Some(id)))
+}
+
+#[tauri::command]
+pub fn nexus_unlink(state: State<'_, AppState>, name: String) -> Result<ModRecord, AppError> {
+    logged(library(&state)?.set_nexus_id(&name, None))
+}
+
+#[tauri::command]
+pub async fn nexus_check(
+    state: State<'_, AppState>,
+    nx: State<'_, NexusState>,
+) -> Result<Vec<nexus::Status>, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let records = library(&state)?.list()?;
+    let data = state.data.clone();
+    let done = tauri::async_runtime::spawn_blocking(move || {
+        let mut cache = load_nexus_cache(&data);
+        let statuses = nexus::check_all(
+            &nexus::Api::official(),
+            &key,
+            &records,
+            &mut cache,
+            now_secs(),
+            nexus::CHECK_TTL_SECS,
+        );
+        if let Ok(text) = serde_json::to_string(&cache) {
+            let _ = write_atomic(nexus_cache_path(&data), text);
+        }
+        statuses
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[derive(Serialize)]
+pub struct InstallResult {
+    added: Vec<ModRecord>,
+    skipped: Vec<String>,
+    ignored: Vec<String>,
+}
+
+fn install_archive(lib: &Library, data: &Path, path: &Path, name: &str) -> Result<Vec<ModRecord>, AppError> {
+    install_archive_report(lib, data, path, name).map(|r| r.0)
+}
+
+fn install_archive_report(
+    lib: &Library,
+    data: &Path,
+    path: &Path,
+    name: &str,
+) -> Result<(Vec<ModRecord>, Vec<String>), AppError> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let work = data.join("tmp").join(stamp.to_string());
+    let done = archive::to_zip(path, &work, crate::library::Limits::default()).and_then(|zip| lib.install_report(&zip, name));
+    let _ = fs::remove_dir_all(&work);
+    done
+}
+
+fn safe_zip_name(name: &str) -> Result<String, AppError> {
+    let ok = !name.is_empty()
+        && name.len() <= 120
+        && !name.contains("..")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || " ._-+()".contains(c));
+    if !ok {
+        return Err(AppError::UnsafePath(name.chars().take(80).collect()));
+    }
+    if archive::kind(Path::new(name)).is_none() {
+        return Err(AppError::Zip("only .zip, .rar and .7z files can be installed".into()));
+    }
+    Ok(name.to_string())
+}
+
+fn mod_folder_name(name: Option<&str>, mod_id: u64) -> String {
+    let cleaned = library::sanitize_name(name.unwrap_or(""));
+    if cleaned.is_empty() {
+        format!("Nexus mod {mod_id}")
+    } else {
+        cleaned
+    }
+}
+
+#[derive(Serialize)]
+pub struct NexusBrowse {
+    items: Vec<nexus::ModInfo>,
+    categories: Vec<nexus::Category>,
+    fetched_at: u64,
+    installed: Vec<u64>,
+}
+
+fn browse_cache_path(data: &Path) -> PathBuf {
+    data.join("nexus-browse.json")
+}
+
+#[tauri::command]
+pub async fn nexus_browse(
+    state: State<'_, AppState>,
+    nx: State<'_, NexusState>,
+    kind: String,
+) -> Result<NexusBrowse, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let installed: Vec<u64> = library(&state)
+        .and_then(|l| l.list())
+        .map(|records| records.into_iter().filter_map(|m| m.nexus_id).collect())
+        .unwrap_or_default();
+    let data = state.data.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut cache: nexus::BrowseCache = fs::read_to_string(browse_cache_path(&data))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let out = nexus::browse(&nexus::Api::official(), &key, &kind, &mut cache, now_secs());
+        if let Ok(text) = serde_json::to_string(&cache) {
+            let _ = write_atomic(browse_cache_path(&data), text);
+        }
+        out
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    let data = logged(result)?;
+    Ok(NexusBrowse {
+        items: data.items,
+        categories: data.categories,
+        fetched_at: data.fetched_at,
+        installed,
+    })
+}
+
+#[tauri::command]
+pub async fn translate_notes(state: State<'_, AppState>, lines: Vec<String>, lang: String) -> Result<Vec<String>, AppError> {
+    let cache = state.data.join("translations.json");
+    let done = tauri::async_runtime::spawn_blocking(move || crate::translate::translate_lines(&cache, &lines, &lang))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub async fn nexus_requirements(nx: State<'_, NexusState>, mod_id: u64) -> Result<Vec<nexus::Requirement>, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let done = tauri::async_runtime::spawn_blocking(move || nexus::requirements(&nexus::Api::official(), &key, mod_id))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[derive(Serialize)]
+pub struct ProfileBuilt {
+    code: String,
+    json: String,
+    count: usize,
+    skipped: Vec<String>,
+}
+
+#[tauri::command]
+pub fn profile_build(state: State<'_, AppState>, names: Vec<String>, title: String) -> Result<ProfileBuilt, AppError> {
+    let records = library(&state)?.list()?;
+    let built = profile::build(&records, &names, &title);
+    if built.profile.mods.is_empty() {
+        return logged(Err(AppError::Unmappable("nothing to share".into())));
+    }
+    Ok(ProfileBuilt {
+        code: profile::encode(&built.profile)?,
+        json: serde_json::to_string_pretty(&built.profile).map_err(|e| AppError::State(e.to_string()))?,
+        count: built.profile.mods.len(),
+        skipped: built.skipped,
+    })
+}
+
+#[derive(Serialize)]
+pub struct ProfileView {
+    name: String,
+    items: Vec<profile::PlanItem>,
+    encoded: String,
+}
+
+#[tauri::command]
+pub async fn profile_open(state: State<'_, AppState>, text: String) -> Result<ProfileView, AppError> {
+    let lib = library(&state)?;
+    let done = tauri::async_runtime::spawn_blocking(move || -> Result<ProfileView, AppError> {
+        let raw = if profile::is_short_code(&text) { profile::fetch(profile::SERVER, &text)? } else { text };
+        let p = profile::decode(&raw)?;
+        let items = profile::plan(&p, &lib.list()?);
+        Ok(ProfileView { name: p.name.clone(), items, encoded: profile::encode(&p)? })
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+fn install_id(data: &Path) -> Result<String, AppError> {
+    let mut s = load_settings(data);
+    if let Some(id) = s.install_id.clone().filter(|i| i.len() == 36) {
+        return Ok(id);
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    s.install_id = Some(id.clone());
+    save_settings(data, &s)?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn profile_share(state: State<'_, AppState>, encoded: String) -> Result<profile::Shared, AppError> {
+    let id = install_id(&state.data)?;
+    let summary = profile::decode(&encoded).map(|p| (p.name, p.mods.len())).ok();
+    let done = tauri::async_runtime::spawn_blocking(move || profile::share(profile::SERVER, &encoded, &id))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    let shared = logged(done)?;
+    if let Some((name, count)) = summary {
+        let mut list = load_shares(&state.data);
+        list.retain(|e| e.code != shared.code);
+        list.insert(0, SharedEntry { code: shared.code.clone(), expires: shared.expires, name, count });
+        list.truncate(20);
+        if let Ok(text) = serde_json::to_string(&list) {
+            let _ = write_atomic(shares_path(&state.data), text);
+        }
+    }
+    Ok(shared)
+}
+
+#[tauri::command]
+pub fn profile_save(path: String, text: String) -> Result<(), AppError> {
+    let p = PathBuf::from(&path);
+    let ok = text.len() <= 256 * 1024 && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json") || e.eq_ignore_ascii_case("cp2077profile"));
+    if !ok {
+        return logged(Err(AppError::UnsafePath(path.chars().take(80).collect())));
+    }
+    logged(write_atomic(p, text).map_err(AppError::from))
+}
+
+#[tauri::command]
+pub fn profile_read(path: String) -> Result<String, AppError> {
+    let p = PathBuf::from(&path);
+    let ok = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json") || e.eq_ignore_ascii_case("cp2077profile"))
+        && fs::metadata(&p).is_ok_and(|m| m.is_file() && m.len() <= 256 * 1024);
+    if !ok {
+        return logged(Err(AppError::UnsafePath(path.chars().take(80).collect())));
+    }
+    logged(fs::read_to_string(&p).map_err(AppError::from))
+}
+
+#[tauri::command]
+pub fn presets_list(state: State<'_, AppState>) -> Vec<presets::Preset> {
+    presets::load(&state.data)
+}
+
+#[tauri::command]
+pub fn preset_save(state: State<'_, AppState>, name: String, mods: Vec<String>) -> Result<Vec<presets::Preset>, AppError> {
+    let mut list = presets::load(&state.data);
+    logged(presets::upsert(&mut list, &name, mods))?;
+    logged(presets::save(&state.data, &list))?;
+    Ok(list)
+}
+
+#[tauri::command]
+pub fn preset_rename(state: State<'_, AppState>, old: String, new: String) -> Result<Vec<presets::Preset>, AppError> {
+    let mut list = presets::load(&state.data);
+    logged(presets::rename(&mut list, &old, &new))?;
+    logged(presets::save(&state.data, &list))?;
+    Ok(list)
+}
+
+#[tauri::command]
+pub fn preset_delete(state: State<'_, AppState>, name: String) -> Result<Vec<presets::Preset>, AppError> {
+    let mut list = presets::load(&state.data);
+    logged(presets::delete(&mut list, &name))?;
+    logged(presets::save(&state.data, &list))?;
+    Ok(list)
+}
+
+#[tauri::command]
+pub fn preset_apply(state: State<'_, AppState>, name: String) -> Result<library::ApplyReport, AppError> {
+    guard_not_running(game::is_game_running())?;
+    let list = presets::load(&state.data);
+    let preset = list
+        .iter()
+        .find(|p| p.name.eq_ignore_ascii_case(&name))
+        .ok_or_else(|| AppError::NotFound(name.clone()))?;
+    logged(library(&state)?.apply_preset(&preset.mods))
+}
+
+#[tauri::command]
+pub async fn nexus_fill_covers(state: State<'_, AppState>, nx: State<'_, NexusState>) -> Result<u32, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let lib = library(&state)?;
+    let data = state.data.clone();
+    let done = tauri::async_runtime::spawn_blocking(move || -> Result<u32, AppError> {
+        let api = nexus::Api::official();
+        let mut filled = 0;
+        let todo: Vec<ModRecord> = lib.list()?.into_iter().filter(|r| r.image.is_none() && r.nexus_id.is_some_and(|id| id > 0)).take(40).collect();
+        for rec in todo {
+            let Some(id) = rec.nexus_id else { continue };
+            let Ok(info) = nexus::mod_info(&api, &key, id) else { continue };
+            let Some(cover) = info.picture_url.as_deref().and_then(|u| fetch_cover(u, &data)) else { continue };
+            let description = if rec.description.is_empty() { info.summary.clone().unwrap_or_default() } else { rec.description.clone() };
+            let version = if rec.version.is_empty() { info.version.clone() } else { rec.version.clone() };
+            if lib.set_info(&rec.name, &description, &version, Some(&cover)).is_ok() {
+                filled += 1;
+            }
+            let _ = fs::remove_file(&cover);
+        }
+        Ok(filled)
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SharedEntry {
+    code: String,
+    expires: u64,
+    name: String,
+    count: usize,
+}
+
+fn shares_path(data: &Path) -> PathBuf {
+    data.join("shares.json")
+}
+
+fn load_shares(data: &Path) -> Vec<SharedEntry> {
+    let now = now_unix();
+    let mut list: Vec<SharedEntry> = fs::read_to_string(shares_path(data))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    list.retain(|e| e.expires > now);
+    list
+}
+
+#[tauri::command]
+pub fn shares_list(state: State<'_, AppState>) -> Vec<SharedEntry> {
+    load_shares(&state.data)
+}
+
+#[tauri::command]
+pub fn get_install_id(state: State<'_, AppState>) -> Result<String, AppError> {
+    install_id(&state.data)
+}
+
+#[tauri::command]
+pub fn reset_install_id(state: State<'_, AppState>) -> Result<String, AppError> {
+    let mut s = load_settings(&state.data);
+    let id = uuid::Uuid::new_v4().to_string();
+    s.install_id = Some(id.clone());
+    save_settings(&state.data, &s)?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn nexus_search(nx: State<'_, NexusState>, params: nexus::SearchParams) -> Result<nexus::SearchPage, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let done = tauri::async_runtime::spawn_blocking(move || nexus::search(&nexus::Api::official(), &key, &params))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+fn swap_if_idle(lib: &Library, names: &[String]) -> Vec<String> {
+    if game::is_game_running() {
+        return Vec::new();
+    }
+    lib.replace_older(names)
+}
+
+fn fetch_cover(url: &str, data: &Path) -> Option<PathBuf> {
+    let clean = nexus::normalise_link(url);
+    let ext = Path::new(clean.split(['?', '#']).next()?).extension()?.to_str()?.to_ascii_lowercase();
+    if !["png", "jpg", "jpeg", "webp"].contains(&ext.as_str()) {
+        tracing::warn!("cover skipped, unsupported picture type .{ext}");
+        return None;
+    }
+    let dir = data.join("tmp");
+    fs::create_dir_all(&dir).ok()?;
+    let dest = dir.join(format!("cover-{}.{ext}", now_unix()));
+    let mut ignore = |_: u64, _: u64| {};
+    if let Err(e) = nexus::download_to(&clean, &dest, crate::meta::MAX_IMAGE, std::sync::Arc::new(nexus::allowed_download_host), &mut ignore) {
+        tracing::warn!("cover download failed: {}", crate::report::redact_tokens(&e.to_string()));
+        return None;
+    }
+    Some(dest)
+}
+
+fn identify_on_nexus(key: &str, lib: &Library, data: &Path, archive: &Path, added: &[ModRecord]) {
+    let Ok(hash) = nexus::md5_hex(archive) else { return };
+    let Ok(Some((info, file))) = nexus::md5_search(&nexus::Api::official(), key, &hash) else { return };
+    for rec in added.iter().filter(|r| r.nexus_id.is_none()) {
+        if lib.set_nexus_id(&rec.name, Some(info.mod_id)).is_err() {
+            continue;
+        }
+        let description = if rec.description.is_empty() { info.summary.clone().unwrap_or_default() } else { rec.description.clone() };
+        let found = if file.version.is_empty() { info.version.clone() } else { file.version.clone() };
+        let version = if rec.version.is_empty() { found } else { rec.version.clone() };
+        let cover = if rec.image.is_none() { info.picture_url.as_deref().and_then(|u| fetch_cover(u, data)) } else { None };
+        let _ = lib.set_info(&rec.name, &description, &version, cover.as_deref());
+        if let Some(path) = &cover {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct FomodMeta {
+    name: String,
+    nexus_id: Option<u64>,
+}
+
+fn fomod_dir(data: &Path) -> PathBuf {
+    data.join("fomod")
+}
+
+fn stage_fomod(data: &Path, source: &Path, name: &str, nexus_id: Option<u64>) {
+    let dir = fomod_dir(data);
+    let _ = fs::remove_dir_all(&dir);
+    if fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let conv = dir.join("conv");
+    let Ok(zip) = archive::to_zip(source, &conv, library::Limits::default()) else { return };
+    let work = dir.join("work.zip");
+    if fs::copy(&zip, &work).is_err() {
+        return;
+    }
+    let _ = fs::remove_dir_all(&conv);
+    if let Ok(text) = serde_json::to_string(&FomodMeta { name: name.to_string(), nexus_id }) {
+        let _ = fs::write(dir.join("meta.json"), text);
+    }
+}
+
+fn fomod_open(data: &Path) -> Result<(zip::ZipArchive<fs::File>, fomod::Config, String, Vec<(usize, String)>, FomodMeta), AppError> {
+    let dir = fomod_dir(data);
+    let mut archive = zip::ZipArchive::new(fs::File::open(dir.join("work.zip")).map_err(|_| AppError::NotFound("fomod".into()))?)?;
+    let names: Vec<String> = (0..archive.len()).map(|i| archive.by_index(i).map(|e| e.name().to_string()).unwrap_or_default()).collect();
+    let (cfg_idx, base) = fomod::config_path(&names).ok_or_else(|| AppError::NotFound("fomod".into()))?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(archive.by_index(cfg_idx)?, 4 * 1024 * 1024), &mut bytes)?;
+    let cfg = fomod::parse(&fomod::decode(&bytes)).ok_or_else(|| AppError::Unmappable("fomod config".into()))?;
+    let entries: Vec<(usize, String)> = names
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| !n.ends_with('/') && n.replace('\\', "/").starts_with(&base))
+        .map(|(i, n)| (i, n.replace('\\', "/")[base.len()..].to_string()))
+        .collect();
+    let meta = fs::read_to_string(dir.join("meta.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    Ok((archive, cfg, base, entries, meta))
+}
+
+#[derive(Serialize)]
+pub struct FomodPending {
+    name: String,
+    view: fomod::View,
+}
+
+#[tauri::command]
+pub fn fomod_pending(state: State<'_, AppState>) -> Result<FomodPending, AppError> {
+    let (_, cfg, _, _, meta) = fomod_open(&state.data)?;
+    let view = cfg.view();
+    let name = if meta.name.is_empty() { view.name.clone() } else { meta.name };
+    Ok(FomodPending { name, view })
+}
+
+#[tauri::command]
+pub fn fomod_eval(state: State<'_, AppState>, selection: fomod::Selection) -> Result<fomod::Evaluation, AppError> {
+    let (_, cfg, _, _, _) = fomod_open(&state.data)?;
+    let lib = library(&state)?;
+    Ok(fomod::evaluate(&cfg, &selection, lib.game_dir()))
+}
+
+#[tauri::command]
+pub fn fomod_image(state: State<'_, AppState>, path: String) -> Result<Option<String>, AppError> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let wanted = path.replace('\\', "/").trim_start_matches("./").to_ascii_lowercase();
+    let ext = wanted.rsplit('.').next().unwrap_or("").to_string();
+    if wanted.is_empty() || wanted.contains("..") || !["png", "jpg", "jpeg", "webp", "gif", "bmp"].contains(&ext.as_str()) {
+        return Ok(None);
+    }
+    let (mut archive, _, _, entries, _) = fomod_open(&state.data)?;
+    let Some((idx, _)) = entries.iter().find(|(_, rel)| rel.to_ascii_lowercase() == wanted) else { return Ok(None) };
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(archive.by_index(*idx)?, 2 * 1024 * 1024), &mut bytes)?;
+    Ok(Some(format!("data:{};base64,{}", crate::meta::mime_for(&ext), STANDARD.encode(bytes))))
+}
+
+#[tauri::command]
+pub fn fomod_cancel(state: State<'_, AppState>) {
+    let _ = fs::remove_dir_all(fomod_dir(&state.data));
+}
+
+#[tauri::command]
+pub fn fomod_install(state: State<'_, AppState>, selection: fomod::Selection) -> Result<InstallResult, AppError> {
+    let lib = library(&state)?;
+    let (_, cfg, _, entries, meta) = fomod_open(&state.data)?;
+    let files = fomod::resolve(&cfg, &selection, &entries, lib.game_dir());
+    if files.is_empty() {
+        return logged(Err(AppError::NoFiles("the chosen options install nothing".into())));
+    }
+    let dir = fomod_dir(&state.data);
+    let out = dir.join("chosen.zip");
+    logged(fomod::build_zip(&dir.join("work.zip"), &files, &out))?;
+    let name = if meta.name.is_empty() { cfg.view().name } else { meta.name.clone() };
+    let name = if name.trim().is_empty() { "fomod-mod".to_string() } else { name };
+    let (added, skipped) = logged(install_archive_report(&lib, &state.data, &out, &name))?;
+    if let Some(id) = meta.nexus_id {
+        for rec in &added {
+            let _ = lib.set_nexus_id(&rec.name, Some(id));
+        }
+    }
+    let ignored = crate::library::take_ignored();
+    let _ = fs::remove_dir_all(&dir);
+    swap_if_idle(&lib, &added.iter().map(|r| r.name.clone()).collect::<Vec<_>>());
+    Ok(InstallResult { added, skipped, ignored })
+}
+
+type ForcedFile = Option<(u64, Option<(String, u64)>)>;
+
+fn run_nexus_install(
+    app: &AppHandle,
+    lib: &Library,
+    data: &Path,
+    key: &str,
+    mod_id: u64,
+    forced: ForcedFile,
+    newest: bool,
+) -> Result<Vec<String>, AppError> {
+    let api = nexus::Api::official();
+    let info = nexus::mod_info(&api, key, mod_id)?;
+    let (files, links) = nexus::files_with_lines(&api, key, mod_id)?;
+    let (file, link_auth) = match forced {
+        Some((file_id, auth)) => (
+            files
+                .iter()
+                .find(|f| f.file_id == file_id)
+                .ok_or_else(|| AppError::NotFound("file".into()))?,
+            auth,
+        ),
+        None => (nexus::choose_file(&files).ok_or_else(|| AppError::NotFound("file".into()))?, None),
+    };
+    let newest = newest || nexus::choose_file(&files).is_some_and(|f| f.file_id == file.file_id);
+    let zip_name = safe_zip_name(&file.file_name)?;
+    let link = nexus::download_link_with(
+        &api,
+        key,
+        mod_id,
+        file.file_id,
+        link_auth.as_ref().map(|(k, e)| (k.as_str(), *e)),
+    )?;
+    let dest = data.join("downloads").join(&zip_name);
+    let mut last = u64::MAX;
+    let mut progress = |done: u64, total: u64| {
+        let pct = if total == 0 { 0 } else { done * 100 / total };
+        if pct != last {
+            last = pct;
+            let _ = app.emit("nexus-progress", serde_json::json!({ "done": done, "total": total }));
+        }
+    };
+    nexus::download_to(
+        &link,
+        &dest,
+        file.size_kb * 1024,
+        std::sync::Arc::new(nexus::allowed_download_host),
+        &mut progress,
+    )?;
+    let folder = mod_folder_name(info.name.as_deref(), mod_id);
+    let installed = install_archive(lib, data, &dest, &folder);
+    if matches!(installed, Err(AppError::Fomod)) {
+        stage_fomod(data, &dest, &folder, Some(mod_id));
+    }
+    if installed.is_err() {
+        let dir = data.join("failed");
+        let _ = fs::remove_dir_all(&dir);
+        if fs::create_dir_all(&dir).is_ok() {
+            let _ = fs::copy(&dest, dir.join(&zip_name));
+        }
+    }
+    let _ = fs::remove_file(&dest);
+    let records = installed?;
+    for rec in &records {
+        lib.set_nexus_id(&rec.name, Some(mod_id))?;
+        let _ = lib.set_nexus_chain(&rec.name, nexus::file_line(file.file_id, &links));
+        let description = if rec.description.is_empty() {
+            info.summary.clone().unwrap_or_default()
+        } else {
+            rec.description.clone()
+        };
+        let mut version = if rec.version.is_empty() { file.version.clone() } else { rec.version.clone() };
+        if newest && nexus::compare_versions(&version, &info.version) == Some(std::cmp::Ordering::Less) {
+            version = info.version.clone();
+        }
+        let cover = info.picture_url.as_deref().and_then(|u| fetch_cover(u, data));
+        let saved = lib.set_info(&rec.name, &description, &version, cover.as_deref());
+        if let Some(path) = &cover {
+            let _ = fs::remove_file(path);
+        }
+        saved?;
+    }
+    let names: Vec<String> = records.into_iter().map(|r| r.name).collect();
+    swap_if_idle(lib, &names);
+    Ok(names)
+}
+
+#[tauri::command]
+pub async fn nexus_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    nx: State<'_, NexusState>,
+    mod_id: u64,
+) -> Result<Vec<String>, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    if !load_nexus_user(&state.data).is_some_and(|u| u.is_premium) {
+        return logged(Err(AppError::NexusPremium));
+    }
+    let lib = library(&state)?;
+    let data = state.data.clone();
+    let done = tauri::async_runtime::spawn_blocking(move || install_with_fallback(&app, &lib, &data, &key, mod_id))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+fn install_with_fallback(app: &AppHandle, lib: &Library, data: &Path, key: &str, mod_id: u64) -> Result<Vec<String>, AppError> {
+    let first = run_nexus_install(app, lib, data, key, mod_id, None, true);
+    if !matches!(first, Err(AppError::NoFiles(_))) {
+        return first;
+    }
+    let api = nexus::Api::official();
+    let files = nexus::files(&api, key, mod_id)?;
+    let tried = nexus::choose_file(&files).map(|f| f.file_id).unwrap_or(0);
+    for id in nexus::fallback_files(&files, tried) {
+        match run_nexus_install(app, lib, data, key, mod_id, Some((id, None)), true) {
+            Err(AppError::NoFiles(_)) => continue,
+            other => return other,
+        }
+    }
+    first
+}
+
+#[tauri::command]
+pub async fn nexus_files(nx: State<'_, NexusState>, mod_id: u64) -> Result<Vec<nexus::FileInfo>, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let done = tauri::async_runtime::spawn_blocking(move || nexus::files(&nexus::Api::official(), &key, mod_id))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub async fn nexus_install_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    nx: State<'_, NexusState>,
+    mod_id: u64,
+    file_id: u64,
+) -> Result<Vec<String>, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    if !load_nexus_user(&state.data).is_some_and(|u| u.is_premium) {
+        return logged(Err(AppError::NexusPremium));
+    }
+    let lib = library(&state)?;
+    let data = state.data.clone();
+    let done = tauri::async_runtime::spawn_blocking(move || run_nexus_install(&app, &lib, &data, &key, mod_id, Some((file_id, None)), false))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub async fn nexus_install_nxm(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    nx: State<'_, NexusState>,
+    link: nxm::NxmLink,
+) -> Result<Vec<String>, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let checked = nxm::parse(&format!(
+        "nxm://{}/mods/{}/files/{}?key={}&expires={}",
+        nexus::GAME,
+        link.mod_id,
+        link.file_id,
+        link.key,
+        link.expires
+    ))?;
+    let lib = library(&state)?;
+    let data = state.data.clone();
+    let done = tauri::async_runtime::spawn_blocking(move || {
+        run_nexus_install(
+            &app,
+            &lib,
+            &data,
+            &key,
+            checked.mod_id,
+            Some((checked.file_id, Some((checked.key, checked.expires)))),
+            false,
+        )
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub async fn nexus_mod_name(nx: State<'_, NexusState>, mod_id: u64) -> Result<String, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let done = tauri::async_runtime::spawn_blocking(move || nexus::mod_info(&nexus::Api::official(), &key, mod_id))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(logged(done)?.name.unwrap_or_default())
+}
+
+pub struct NxmState {
+    pub pending: std::sync::Mutex<Option<nxm::NxmLink>>,
+}
+
+#[tauri::command]
+pub fn take_pending_nxm(state: State<'_, NxmState>) -> Option<nxm::NxmLink> {
+    state.pending.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+
+#[tauri::command]
+pub fn nxm_status() -> Result<nxm::Handler, AppError> {
+    let exe = std::env::current_exe().map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(nxm::status(&exe))
+}
+
+#[tauri::command]
+pub fn nxm_register(enable: bool) -> Result<nxm::Handler, AppError> {
+    let exe = std::env::current_exe().map_err(|e| AppError::Io(e.to_string()))?;
+    logged(if enable { nxm::register(&exe) } else { nxm::unregister(&exe) })?;
+    Ok(nxm::status(&exe))
+}
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+#[tauri::command]
+pub fn downloads_recent(since: u64) -> Vec<nxm::Found> {
+    dirs::download_dir()
+        .map(|d| nxm::recent_archives(&d, since, now_unix()))
+        .unwrap_or_default()
+}
+
+fn install_downloaded(lib: &Library, data: &Path, file: &Path, stem: Option<&str>, key: Option<&str>) -> Result<Vec<ModRecord>, AppError> {
+    let folder = mod_folder_name(stem, 0);
+    let added = install_archive(lib, data, file, &folder);
+    if matches!(added, Err(AppError::Fomod)) {
+        stage_fomod(data, file, &folder, None);
+    }
+    let added = added?;
+    if let Some(key) = key {
+        identify_on_nexus(key, lib, data, file, &added);
+    }
+    swap_if_idle(lib, &added.iter().map(|r| r.name.clone()).collect::<Vec<_>>());
+    Ok(added)
+}
+
+fn install_web_download(lib: &Library, data: &Path, file: &Path, stem: Option<&str>, name: &str, key: Option<&str>) -> Result<Vec<ModRecord>, AppError> {
+    let parsed = nexus::parse_filename(name);
+    let info = match (&parsed, key) {
+        (Some(p), Some(k)) if p.mod_id > 0 => nexus::mod_info(&nexus::Api::official(), k, p.mod_id).ok(),
+        _ => None,
+    };
+    let (Some(p), Some(info)) = (parsed, info) else {
+        return install_downloaded(lib, data, file, stem, key);
+    };
+    let folder = mod_folder_name(info.name.as_deref(), p.mod_id);
+    let added = install_archive(lib, data, file, &folder);
+    if matches!(added, Err(AppError::Fomod)) {
+        stage_fomod(data, file, &folder, Some(p.mod_id));
+    }
+    let added = added?;
+    for rec in &added {
+        lib.set_nexus_id(&rec.name, Some(p.mod_id))?;
+        let description = if rec.description.is_empty() { info.summary.clone().unwrap_or_default() } else { rec.description.clone() };
+        let version = if rec.version.is_empty() { p.version.clone() } else { rec.version.clone() };
+        let cover = info.picture_url.as_deref().and_then(|u| fetch_cover(u, data));
+        let saved = lib.set_info(&rec.name, &description, &version, cover.as_deref());
+        if let Some(path) = &cover {
+            let _ = fs::remove_file(path);
+        }
+        saved?;
+    }
+    swap_if_idle(lib, &added.iter().map(|r| r.name.clone()).collect::<Vec<_>>());
+    Ok(added)
+}
+
+fn web_file_name(url: &tauri::Url) -> Option<String> {
+    let last = url.path_segments()?.filter(|s| !s.is_empty()).last()?;
+    let raw = last.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(raw.len());
+    let mut i = 0;
+    while i < raw.len() {
+        if raw[i] == b'%' && i + 3 <= raw.len() {
+            if let Some(v) = last.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(raw[i]);
+        i += 1;
+    }
+    String::from_utf8(out).ok()
+}
+
+const SINGLE_FILE_MODS: [&str; 9] = ["archive", "xl", "reds", "tweak", "yaml", "yml", "lua", "dll", "json"];
+
+fn web_download_name(name: &str) -> Result<(String, bool), AppError> {
+    let ext = Path::new(name).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if SINGLE_FILE_MODS.contains(&ext.as_str()) {
+        let plain = !name.is_empty() && name.len() <= 120 && !name.contains("..") && name.chars().all(|c| c.is_ascii_alphanumeric() || " ._-+()".contains(c));
+        return if plain { Ok((name.to_string(), true)) } else { Err(AppError::UnsafePath(name.chars().take(80).collect())) };
+    }
+    safe_zip_name(name).map(|n| (n, false)).map_err(|e| match e {
+        AppError::Zip(_) => AppError::Zip(format!("only .zip, .rar and .7z files can be installed (got {})", name.chars().take(60).collect::<String>())),
+        other => other,
+    })
+}
+
+fn wrap_single_file(file: &Path, name: &str, out: &Path) -> Result<(), AppError> {
+    let mut w = zip::ZipWriter::new(fs::File::create(out)?);
+    w.start_file(name, zip::write::SimpleFileOptions::default())?;
+    std::io::copy(&mut fs::File::open(file)?, &mut w)?;
+    w.finish()?;
+    Ok(())
+}
+
+static WEB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static WEB_CANCEL: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+
+#[tauri::command]
+pub fn cancel_web_download(id: u64) {
+    let mut c = WEB_CANCEL.lock().unwrap_or_else(|e| e.into_inner());
+    if !c.contains(&id) {
+        c.push(id);
+    }
+}
+
+fn run_web_download(app: AppHandle, url: tauri::Url, suggested: Option<String>) {
+    let id = WEB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_web_download_inner(&app, id, url, suggested)));
+    if outcome.is_err() {
+        let _ = app.emit(
+            "web-download",
+            serde_json::json!({ "id": id, "phase": "error", "name": "", "done": 0, "total": 0, "error": { "code": "io", "message": "the download stopped unexpectedly" } }),
+        );
+    }
+    WEB_CANCEL.lock().unwrap_or_else(|e| e.into_inner()).retain(|x| *x != id);
+}
+
+fn run_web_download_inner(app: &AppHandle, id: u64, url: tauri::Url, suggested: Option<String>) {
+    let say = |phase: &str, name: &str, done: u64, total: u64, error: Option<&AppError>| {
+        let err = error.and_then(|e| serde_json::to_value(e).ok());
+        let _ = app.emit("web-download", serde_json::json!({ "id": id, "phase": phase, "name": name, "done": done, "total": total, "error": err }));
+    };
+    let cancelled = || WEB_CANCEL.lock().unwrap_or_else(|e| e.into_inner()).contains(&id);
+    let named = suggested.map(|n| web_download_name(&n)).filter(|r| r.is_ok()).or_else(|| web_file_name(&url).map(|n| web_download_name(&n)));
+    let (name, single) = match named {
+        Some(Ok(n)) => n,
+        Some(Err(e)) => {
+            let _ = logged::<()>(Err(AppError::Zip(e.to_string())));
+            say("error", "", 0, 0, Some(&e));
+            return;
+        }
+        None => return,
+    };
+    let state = app.state::<AppState>();
+    let data = state.data.clone();
+    let lib = match library(&state) {
+        Ok(l) => l,
+        Err(e) => {
+            say("error", &name, 0, 0, Some(&e));
+            return;
+        }
+    };
+    let key = app.state::<NexusState>().store.get().ok().flatten();
+    let dir = data.join("downloads");
+    let _ = fs::create_dir_all(&dir);
+    let dest = dir.join(&name);
+    say("downloading", &name, 0, 0, None);
+    let mut last = u64::MAX;
+    let mut progress = |done: u64, total: u64| {
+        let pct = if total == 0 { done / 1_000_000 } else { done * 100 / total };
+        if pct != last {
+            last = pct;
+            say("downloading", &name, done, total, None);
+        }
+    };
+    let fetched = nexus::download_cancellable(url.as_str(), &dest, 0, std::sync::Arc::new(nexus::allowed_download_host), &mut progress, &cancelled);
+    if let Err(e) = fetched {
+        let _ = fs::remove_file(&dest);
+        if cancelled() {
+            say("cancelled", &name, 0, 0, None);
+            return;
+        }
+        tracing::error!("{}", crate::report::redact_tokens(&e.to_string()));
+        say("error", &name, 0, 0, Some(&e));
+        return;
+    }
+    say("installing", &name, 0, 0, None);
+    let stem = dest.file_stem().map(|s| s.to_string_lossy().into_owned());
+    let source = if single { dest.with_extension("zip") } else { dest.clone() };
+    let ready = if single { wrap_single_file(&dest, &name, &source) } else { Ok(()) };
+    let done = ready.and_then(|_| install_web_download(&lib, &data, &source, stem.as_deref(), &name, key.as_deref()));
+    let _ = fs::remove_file(&dest);
+    let _ = fs::remove_file(&source);
+    match logged(done) {
+        Ok(added) => say("done", &name, added.len() as u64, 0, None),
+        Err(e) => say("error", &name, 0, 0, Some(&e)),
+    }
+}
+
+#[tauri::command]
+pub async fn install_download(state: State<'_, AppState>, nx: State<'_, NexusState>, path: String) -> Result<Vec<ModRecord>, AppError> {
+    let file = PathBuf::from(&path);
+    let allowed = dirs::download_dir().is_some_and(|d| nxm::is_inside(&d, &file)) && archive::kind(&file).is_some();
+    if !allowed {
+        return logged(Err(AppError::UnsafePath(path.chars().take(80).collect())));
+    }
+    let lib = library(&state)?;
+    let data = state.data.clone();
+    let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned());
+    let key = nx.store.get().ok().flatten();
+    let done = tauri::async_runtime::spawn_blocking(move || install_downloaded(&lib, &data, &file, stem.as_deref(), key.as_deref()))
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub async fn nexus_probe(state: State<'_, AppState>, nx: State<'_, NexusState>) -> Result<u64, AppError> {
+    let key = nx.store.get()?.ok_or(AppError::NexusKey)?;
+    let dest = state.data.join("nexus-schema.json");
+    let done = tauri::async_runtime::spawn_blocking(move || nexus::probe_schema(&nexus::Api::official(), &key, &dest))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub fn install_mod(
+    state: State<'_, AppState>,
+    nx: State<'_, NexusState>,
+    zip_path: String,
+    name: String,
+) -> Result<InstallResult, AppError> {
+    let lib = library(&state)?;
+    let report = install_archive_report(&lib, &state.data, Path::new(&zip_path), &name);
+    if matches!(report, Err(AppError::Fomod)) {
+        stage_fomod(&state.data, Path::new(&zip_path), &name, None);
+    }
+    let (added, skipped) = logged(report)?;
+    if let Some(key) = nx.store.get().ok().flatten() {
+        identify_on_nexus(&key, &lib, &state.data, Path::new(&zip_path), &added);
+    }
+    swap_if_idle(&lib, &added.iter().map(|r| r.name.clone()).collect::<Vec<_>>());
+    let ignored = crate::library::take_ignored();
+    Ok(InstallResult { added, skipped, ignored })
+}
+
+#[tauri::command]
+pub fn set_mod_info(
+    state: State<'_, AppState>,
+    name: String,
+    description: String,
+    version: String,
+    image_path: Option<String>,
+) -> Result<ModRecord, AppError> {
+    logged(library(&state)?.set_info(
+        &name,
+        &description,
+        &version,
+        image_path.as_deref().map(Path::new),
+    ))
+}
+
+#[tauri::command]
+pub fn mod_thumb(state: State<'_, AppState>, name: String) -> Result<Option<String>, AppError> {
+    library(&state)?.thumb_data_url(&name)
+}
+
+#[tauri::command]
+pub fn save_mod_thumb(state: State<'_, AppState>, name: String, data: String) -> Result<(), AppError> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let Some(b64) = data.strip_prefix("data:image/jpeg;base64,") else {
+        return Err(AppError::Unmappable("thumbnail".into()));
+    };
+    let bytes = STANDARD.decode(b64).map_err(|_| AppError::Unmappable("thumbnail".into()))?;
+    logged(library(&state)?.set_thumb(&name, &bytes))
+}
+
+#[tauri::command]
+pub fn mod_image(state: State<'_, AppState>, name: String) -> Result<Option<String>, AppError> {
+    library(&state)?.image_data_url(&name)
+}
+
+fn zip_target(dest: &str) -> Result<(), AppError> {
+    if Path::new(dest).extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
+        Ok(())
+    } else {
+        Err(AppError::InvalidName(dest.chars().take(80).collect()))
+    }
+}
+
+fn export_progress(app: AppHandle) -> impl FnMut(u32, u32) {
+    move |done, total| {
+        let _ = app.emit("export-progress", serde_json::json!({ "done": done, "total": total }));
+    }
+}
+
+#[tauri::command]
+pub async fn export_mod(app: AppHandle, state: State<'_, AppState>, name: String, dest: String) -> Result<(), AppError> {
+    zip_target(&dest)?;
+    let lib = library(&state)?;
+    let done = tauri::async_runtime::spawn_blocking(move || lib.export_mod_with(&name, Path::new(&dest), &mut export_progress(app)))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[tauri::command]
+pub async fn export_pack(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    names: Vec<String>,
+    dest: String,
+) -> Result<(), AppError> {
+    zip_target(&dest)?;
+    let lib = library(&state)?;
+    let done = tauri::async_runtime::spawn_blocking(move || lib.export_pack_with(&names, Path::new(&dest), &mut export_progress(app)))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    logged(done)
+}
+
+#[derive(Serialize)]
+pub struct AppInfo {
+    version: String,
+    data_dir: String,
+}
+
+#[tauri::command]
+pub fn app_info(state: State<'_, AppState>) -> AppInfo {
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        data_dir: state.data.to_string_lossy().into_owned(),
+    }
+}
+
+#[tauri::command]
+pub fn enable_mod(state: State<'_, AppState>, name: String, force: bool) -> Result<(), AppError> {
+    guard_not_running(game::is_game_running())?;
+    logged(library(&state)?.activate_exclusive(&name, force))
+}
+
+#[tauri::command]
+pub fn disable_mod(state: State<'_, AppState>, name: String) -> Result<(), AppError> {
+    guard_not_running(game::is_game_running())?;
+    logged(library(&state)?.disable(&name))
+}
+
+#[tauri::command]
+pub fn uninstall_mod(state: State<'_, AppState>, name: String) -> Result<(), AppError> {
+    guard_not_running(game::is_game_running())?;
+    logged(library(&state)?.uninstall(&name))
+}
+
+fn game_opt(state: &AppState) -> Option<PathBuf> {
+    load_settings(&state.data).game_dir.map(PathBuf::from)
+}
+
+#[derive(Serialize)]
+pub struct CrashSummary {
+    id: String,
+    name: String,
+    source: String,
+    modified: u64,
+    excerpt: String,
+}
+
+#[tauri::command]
+pub fn logs_scan(state: State<'_, AppState>) -> Vec<LogFile> {
+    let game = game_opt(&state);
+    logs::scan(game.as_deref(), &state.data)
+}
+
+#[tauri::command]
+pub fn logs_read(
+    state: State<'_, AppState>,
+    id: String,
+    end: Option<u64>,
+    max: Option<u64>,
+) -> Result<Chunk, AppError> {
+    let game = game_opt(&state);
+    let path = logs::resolve(game.as_deref(), &state.data, &id)?;
+    logs::read_chunk(&path, end, max.unwrap_or(logs::DEFAULT_CHUNK))
+}
+
+#[tauri::command]
+pub fn logs_head(state: State<'_, AppState>, id: String) -> Result<Chunk, AppError> {
+    let game = game_opt(&state);
+    let path = logs::resolve(game.as_deref(), &state.data, &id)?;
+    logs::read_head(&path, logs::DEFAULT_CHUNK)
+}
+
+#[tauri::command]
+pub fn logs_poll(state: State<'_, AppState>, id: String, from: u64) -> Result<Chunk, AppError> {
+    let game = game_opt(&state);
+    let path = logs::resolve(game.as_deref(), &state.data, &id)?;
+    logs::read_since(&path, from, logs::DEFAULT_CHUNK)
+}
+
+#[tauri::command]
+pub fn logs_summary(state: State<'_, AppState>) -> Result<Option<CrashSummary>, AppError> {
+    let game = game_opt(&state);
+    let Some(file) = logs::scan(game.as_deref(), &state.data).into_iter().find(|f| f.crash) else {
+        return Ok(None);
+    };
+    let path = logs::resolve(game.as_deref(), &state.data, &file.id)?;
+    Ok(Some(CrashSummary {
+        excerpt: logs::excerpt(&path, 12)?,
+        id: file.id,
+        name: file.name,
+        source: file.source,
+        modified: file.modified,
+    }))
+}
+
+#[tauri::command]
+pub fn logs_reveal(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
+    let game = game_opt(&state);
+    let path = logs::resolve(game.as_deref(), &state.data, &id)?;
+    open_folder(path.to_string_lossy().into_owned());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn logs_clear(state: State<'_, AppState>) -> Result<logs::Cleared, AppError> {
+    let game = game_opt(&state);
+    Ok(logs::clear(game.as_deref(), &state.data))
+}
+
+#[tauri::command]
+pub async fn nc_detect(
+    state: State<'_, AppState>,
+    builds: Vec<BuildInfo>,
+) -> Result<Option<Detected>, AppError> {
+    let Some(game) = game_opt(&state) else {
+        return Ok(None);
+    };
+    tauri::async_runtime::spawn_blocking(move || version::detect_nightcoop(&game, &builds))
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))
+}
+
+#[tauri::command]
+pub fn build_error_report(
+    state: State<'_, AppState>,
+    error: String,
+    note: String,
+    language: String,
+    log_id: Option<String>,
+) -> String {
+    let mods = library(&state)
+        .and_then(|l| l.list())
+        .map(|list| {
+            list.into_iter()
+                .filter(|m| m.enabled)
+                .map(|m| m.name)
+                .collect()
+        })
+        .unwrap_or_default();
+    let input = ReportInput {
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        os: sysinfo::System::long_os_version().unwrap_or_else(|| "unknown".into()),
+        language,
+        error,
+        log_tail: report_log_tail(&state, log_id.as_deref()),
+        mods,
+        note,
+    };
+    let home = dirs::home_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    report::build_report(&input, &home)
+}
+
+fn report_log_tail(state: &AppState, log_id: Option<&str>) -> Vec<String> {
+    let mut lines = newest_log_tail(&state.data, 200);
+    let Some(id) = log_id else {
+        return lines;
+    };
+    let game = game_opt(state);
+    if let Ok(path) = logs::resolve(game.as_deref(), &state.data, id) {
+        if let Ok(chunk) = logs::read_chunk(&path, None, 64 * 1024) {
+            lines.push(format!("--- {id} (last 200 lines) ---"));
+            lines.extend(tail_lines(&chunk.text, 200));
+        }
+    }
+    lines
+}
+
+#[tauri::command]
+pub fn save_error_report(text: String) -> Result<String, AppError> {
+    let dir = dirs::desktop_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| AppError::Io("no folder to save into".into()))?;
+    let path = logged(report::save_report(&text, &dir))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[cfg(windows)]
+fn explorer(arg: String) {
+    use std::os::windows::process::CommandExt;
+    let _ = std::process::Command::new("explorer").raw_arg(arg).spawn();
+}
+
+#[cfg(not(windows))]
+fn explorer(_: String) {}
+
+fn explorer_path(path: &str) -> Option<String> {
+    let fixed = path.replace('/', "\\");
+    (!fixed.is_empty() && !fixed.contains(['"', '\n', '\r', '|', '<', '>']) && Path::new(&fixed).exists()).then_some(fixed)
+}
+
+#[tauri::command]
+pub fn open_folder(path: String) {
+    if let Some(p) = explorer_path(&path) {
+        explorer(format!("/select,\"{p}\""));
+    }
+}
+
+#[tauri::command]
+pub fn logs_open(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
+    let game = game_opt(&state);
+    let path = logs::resolve(game.as_deref(), &state.data, &id)?;
+    if let Some(p) = explorer_path(&path.to_string_lossy()) {
+        explorer(format!("\"{p}\""));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fomod_archive_is_staged_chosen_from_and_installed_end_to_end() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path().join("data");
+        let game = tmp.path().join("game");
+        fs::create_dir_all(&game).unwrap();
+        let zip_path = tmp.path().join("m.zip");
+        {
+            let mut w = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
+            let o = zip::write::SimpleFileOptions::default();
+            let cfg = r#"<config><moduleName>Fancy</moduleName><installSteps><installStep name="S"><optionalFileGroups><group name="G" type="SelectExactlyOne"><plugins>
+                <plugin name="Red"><files><file source="Red\r.archive" destination="archive\pc\mod\r.archive"/></files><typeDescriptor><type name="Optional"/></typeDescriptor></plugin>
+                <plugin name="Blue"><files><file source="Blue\b.archive" destination="archive\pc\mod\b.archive"/></files><typeDescriptor><type name="Optional"/></typeDescriptor></plugin>
+                </plugins></group></optionalFileGroups></installStep></installSteps></config>"#;
+            for (n, body) in [("fomod/ModuleConfig.xml", cfg), ("Red/r.archive", "RED"), ("Blue/b.archive", "BLUE")] {
+                w.start_file(n, o).unwrap();
+                w.write_all(body.as_bytes()).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        let lib = Library::new(data.join("mod_library"), game.clone());
+        assert!(matches!(install_archive(&lib, &data, &zip_path, "Fancy"), Err(AppError::Fomod)));
+        stage_fomod(&data, &zip_path, "Fancy", Some(77));
+        let (_, cfg, _, entries, meta) = fomod_open(&data).unwrap();
+        assert_eq!((meta.name.as_str(), meta.nexus_id), ("Fancy", Some(77)));
+        let files = fomod::resolve(&cfg, &vec![vec![vec![1]]], &entries, &game);
+        let out = fomod_dir(&data).join("chosen.zip");
+        fomod::build_zip(&fomod_dir(&data).join("work.zip"), &files, &out).unwrap();
+        let added = install_archive(&lib, &data, &out, "Fancy").unwrap();
+        assert_eq!(added.len(), 1);
+        assert_eq!(added[0].files, vec!["archive/pc/mod/b.archive".to_string()]);
+    }
+
+    #[test]
+    fn only_plain_zip_names_may_be_written_to_the_downloads_folder() {
+        assert_eq!(safe_zip_name("Neon Streets-7-1-2-1700000000.zip").unwrap(), "Neon Streets-7-1-2-1700000000.zip");
+        for bad in ["", "../x.zip", "a/b.zip", "a\\b.zip", "C:x.zip", "x.zip.exe", "x..zip", "a;b.zip"] {
+            assert!(safe_zip_name(bad).is_err(), "{bad}");
+        }
+        assert_eq!(safe_zip_name("pack.7z").unwrap(), "pack.7z");
+        assert_eq!(safe_zip_name("pack.RAR").unwrap(), "pack.RAR");
+        assert!(matches!(safe_zip_name("pack.exe"), Err(AppError::Zip(_))));
+    }
+
+    #[test]
+    fn mod_names_become_safe_folder_names() {
+        assert_eq!(mod_folder_name(Some("Neon: Streets?"), 7), "Neon_ Streets_");
+        assert_eq!(mod_folder_name(Some("  ..hidden"), 7), "hidden");
+        assert_eq!(mod_folder_name(None, 7), "Nexus mod 7");
+        assert_eq!(mod_folder_name(Some("***"), 7), "___");
+        assert!(mod_folder_name(Some(&"x".repeat(200)), 7).len() <= 56);
+        assert_eq!(mod_folder_name(Some("Vanilla Clothes Refits for Enhanced Big Breast."), 7), "Vanilla Clothes Refits for Enhanced Big Breast");
+        assert_eq!(mod_folder_name(Some("Name with dots..."), 7), "Name with dots");
+        assert_eq!(mod_folder_name(Some(&format!("{} tail", "y".repeat(55))), 7), "y".repeat(55));
+        assert_eq!(mod_folder_name(Some("CON"), 7), "_CON");
+        assert_eq!(mod_folder_name(Some("..."), 7), "Nexus mod 7");
+    }
+
+    #[test]
+    fn a_web_download_is_named_from_its_url_and_only_nexus_hosts_are_fetched() {
+        let url: tauri::Url = "https://cf-files.nexusmods.com/cdn/3333/10064/v2_AIOTweaks-10064-1-1-1740438467.7z?md5=a&expires=1".parse().unwrap();
+        assert_eq!(web_file_name(&url).as_deref(), Some("v2_AIOTweaks-10064-1-1-1740438467.7z"));
+        let spaced: tauri::Url = "https://cf-files.nexusmods.com/cdn/Big%20Mod-7-1.zip".parse().unwrap();
+        assert_eq!(web_file_name(&spaced).as_deref(), Some("Big Mod-7-1.zip"));
+        assert!(nexus::allowed_download_host(url.as_str()));
+        assert!(!nexus::allowed_download_host("https://evil.example/cdn/a.7z"));
+        assert!(safe_zip_name("v2_AIOTweaks-10064-1-1-1740438467.7z").is_ok());
+        assert!(safe_zip_name("../x.7z").is_err());
+    }
+
+    #[test]
+    fn single_file_mods_are_accepted_as_downloads_and_wrapped_into_a_zip() {
+        assert_eq!(web_download_name("Fix-123-1-0.zip").unwrap(), ("Fix-123-1-0.zip".to_string(), false));
+        assert_eq!(web_download_name("cool-77-1-0-99.archive").unwrap(), ("cool-77-1-0-99.archive".to_string(), true));
+        assert!(matches!(web_download_name("setup.exe"), Err(AppError::Zip(m)) if m.contains("setup.exe")));
+        assert!(web_download_name("../a.archive").is_err());
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("cool.archive");
+        fs::write(&file, b"data").unwrap();
+        let out = dir.path().join("cool.zip");
+        wrap_single_file(&file, "cool.archive", &out).unwrap();
+        let mut z = zip::ZipArchive::new(fs::File::open(out).unwrap()).unwrap();
+        assert_eq!(z.len(), 1);
+        assert_eq!(z.by_index(0).unwrap().name(), "cool.archive");
+    }
+
+    #[test]
+    fn only_nexus_pages_open_in_the_nexus_window() {
+        assert!(nexus_page("https://www.nexusmods.com/cyberpunk2077/mods/7?tab=files"));
+        assert!(nexus_page("https://nexusmods.com/cyberpunk2077/mods/7"));
+        assert!(!nexus_page("https://github.com/This-null/cyberpunk-modloader"));
+        assert!(!nexus_page("https://www.nexusmods.com.evil.example/"));
+        assert!(!nexus_page("http://www.nexusmods.com/"));
+    }
+
+    #[test]
+    fn only_https_links_to_known_sites_may_be_opened() {
+        assert!(allowed_url("https://www.nexusmods.com/users/myaccount?tab=api"));
+        assert!(allowed_url("https://www.nexusmods.com/cyberpunk2077/mods/107"));
+        assert!(allowed_url("https://nightcoop.net/download.html"));
+        assert!(allowed_url("https://github.com/This-null/cyberpunk-modloader"));
+        assert!(allowed_url("https://discord.gg/EaNcFyCEqP"));
+        for bad in [
+            "https://discord.gg/other",
+            "https://github.com/other/repo",
+            "https://github.com.evil.example/This-null/x",
+            "http://www.nexusmods.com/",
+            "https://evil.example/",
+            "https://www.nexusmods.com.evil.example/",
+            "https://nexusmods.com@evil.example/",
+            "file:///C:/Windows/System32/calc.exe",
+            "javascript:alert(1)",
+            "https://www.nexusmods.com/a b",
+            "https://www.nexusmods.com/\nx",
+            "",
+        ] {
+            assert!(!allowed_url(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_real_plain_paths_are_handed_to_explorer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("my log.log");
+        fs::write(&file, "x").unwrap();
+        let shown = explorer_path(&file.to_string_lossy().replace('\\', "/")).unwrap();
+        assert!(!shown.contains('/') && shown.ends_with("my log.log"));
+        assert!(explorer_path("").is_none());
+        assert!(explorer_path(&tmp.path().join("missing.log").to_string_lossy()).is_none());
+        assert!(explorer_path("C:\\x\" /root,C:\\Windows").is_none());
+    }
+
+    #[test]
+    fn a_game_folder_is_compared_without_caring_about_slashes_or_case() {
+        assert!(same_dir("D:\\Games\\Cyberpunk 2077", "d:/games/cyberpunk 2077/"));
+        assert!(!same_dir("D:\\Games\\Cyberpunk 2077", "E:\\Games\\Cyberpunk 2077"));
+    }
+
+    #[test]
+    fn the_install_id_is_made_once_and_kept_with_the_other_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_settings(tmp.path(), &Settings { game_dir: Some("D:\\g".into()), ..Default::default() }).unwrap();
+        let a = install_id(tmp.path()).unwrap();
+        assert_eq!(a.len(), 36);
+        assert_eq!(install_id(tmp.path()).unwrap(), a);
+        assert_eq!(load_settings(tmp.path()).game_dir.as_deref(), Some("D:\\g"));
+    }
+
+    #[test]
+    fn atomic_writes_replace_the_file_and_leave_no_temp_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("a.json");
+        write_atomic(p.clone(), "one").unwrap();
+        write_atomic(p.clone(), "two").unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "two");
+        assert!(!p.with_extension("tmp").exists());
+    }
+
+    #[test]
+    fn guard_blocks_while_running() {
+        assert!(matches!(guard_not_running(true), Err(AppError::GameRunning)));
+        assert!(guard_not_running(false).is_ok());
+    }
+
+    #[test]
+    fn tail_keeps_last_lines() {
+        assert_eq!(tail_lines("a\nb\nc\nd", 2), vec!["c", "d"]);
+        assert_eq!(tail_lines("a", 5), vec!["a"]);
+        assert!(tail_lines("", 3).is_empty());
+    }
+
+    #[test]
+    fn settings_default_when_missing_and_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(load_settings(tmp.path()).game_dir.is_none());
+        save_settings(
+            tmp.path(),
+            &Settings {
+                game_dir: Some("D:\\g".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(load_settings(tmp.path()).game_dir.as_deref(), Some("D:\\g"));
+    }
+
+    #[test]
+    fn language_and_theme_survive_a_restart_and_old_files_still_load() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(settings_path(tmp.path()), r#"{"game_dir":"D:\\g"}"#).unwrap();
+        let old = load_settings(tmp.path());
+        assert_eq!((old.locale, old.theme, old.motion, old.translate, old.updates, old.translate_lang, old.mod_updates), (None, None, None, None, None, None, None));
+        save_settings(
+            tmp.path(),
+            &Settings { locale: Some("ru".into()), theme: Some("dark".into()), motion: Some("full".into()), translate: Some("on".into()), updates: Some("off".into()), translate_lang: Some("de".into()), mod_updates: Some("auto".into()), ..Default::default() },
+        )
+        .unwrap();
+        let back = load_settings(tmp.path());
+        assert_eq!((back.locale.as_deref(), back.theme.as_deref(), back.motion.as_deref(), back.translate.as_deref(), back.updates.as_deref(), back.translate_lang.as_deref()), (Some("ru"), Some("dark"), Some("full"), Some("on"), Some("off"), Some("de")));
+    }
+}
+
+#[tauri::command]
+pub async fn crash_analyze(state: State<'_, AppState>) -> Result<Vec<crash::Suspect>, AppError> {
+    let settings = load_settings(&state.data);
+    let game = settings.game_dir.map(PathBuf::from).ok_or(AppError::GameNotFound)?;
+    let data = state.data.clone();
+    let records = library(&state)?.list()?;
+    let found = tauri::async_runtime::spawn_blocking(move || {
+        let mut files = logs::scan(Some(&game), &data);
+        files.retain(|f| f.group != "launcher");
+        files.truncate(12);
+        let sources: Vec<(String, String)> = files
+            .iter()
+            .filter_map(|f| {
+                let path = logs::resolve(Some(&game), &data, &f.id).ok()?;
+                let chunk = logs::read_chunk(&path, None, 300 * 1024).ok()?;
+                Some((f.name.clone(), chunk.text))
+            })
+            .collect();
+        crash::analyze(&sources, &records, &game)
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(found)
+}
+
+fn parity_mine(state: &AppState) -> Result<parity::Fingerprint, AppError> {
+    let lib = library(state)?;
+    let records = lib.list()?;
+    let digests = lib.digests();
+    let game = crate::frameworks::file_version(&lib.game_dir().join("bin").join("x64").join("Cyberpunk2077.exe"));
+    let nc = records
+        .iter()
+        .find(|r| r.enabled && r.source.as_deref() == Some("nightcoop") && !r.version.is_empty())
+        .map(|r| r.version.clone());
+    let protocol = nc.as_ref().and_then(|v| {
+        let text = fs::read_to_string(state.data.join("nightcoop-releases.json")).ok()?;
+        let parsed = nightcoop::parse_releases(&text).ok()?;
+        parsed.releases.iter().find(|r| &r.version == v).map(|r| r.protocol)
+    });
+    let frameworks = crate::frameworks::check(lib.game_dir());
+    Ok(parity::build(&records, &digests, game, nc, protocol, &frameworks))
+}
+
+#[tauri::command]
+pub fn parity_code(state: State<'_, AppState>) -> Result<String, AppError> {
+    logged(parity::encode(&parity_mine(&state)?))
+}
+
+#[tauri::command]
+pub fn parity_compare(state: State<'_, AppState>, code: String) -> Result<parity::Report, AppError> {
+    let theirs = parity::decode(&code)?;
+    Ok(parity::compare(&parity_mine(&state)?, &theirs))
+}
+
+#[tauri::command]
+pub fn nexus_link_by_name(state: State<'_, AppState>) -> Result<Vec<String>, AppError> {
+    let lib = library(&state)?;
+    let mut linked = Vec::new();
+    for r in lib.list()?.iter().filter(|r| r.nexus_id.is_none()) {
+        if let Some((id, _)) = nexus::parse_stamped_name(&r.name) {
+            lib.set_nexus_id(&r.name, Some(id))?;
+            linked.push(r.name.clone());
+        }
+    }
+    Ok(linked)
+}

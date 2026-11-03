@@ -1,0 +1,9 @@
+CP2077 Mod Launcher
+
+This is an unofficial community tool. It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop team.
+
+Nothing is sent anywhere automatically. Bug reports are only saved on your computer. The launcher only contacts the NightCoop website and Nexus Mods to list and download mods, and Google Translate only when you press the translate button.
+
+Your Nexus API key stays in Windows Credential Manager on this computer.
+
+Use mods at your own risk. Back up your saves before you try new mods.
