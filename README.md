@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.1.0 beta.
+An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.1.1 beta.
 
 It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop team.
 
@@ -25,6 +25,7 @@ It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop
 - Adds a download manager page, profiles you can switch between, a guided first-run tour, a Nexus window with back and forward buttons that walks you through missing requirements, and a new start-up screen.
 - Steadier downloads, safer mod removal, bigger covers and a few new helpers.
 - Share your mods through a private link, control the game load order, and see what is new after each update.
+- A tidier mods toolbar.
 
 ## Install
 

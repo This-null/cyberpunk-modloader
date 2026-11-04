@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Windows için Cyberpunk 2077'ye yönelik resmi olmayan bir topluluk mod yöneticisi. Sürüm 0.1.0 beta.
+Windows için Cyberpunk 2077'ye yönelik resmi olmayan bir topluluk mod yöneticisi. Sürüm 0.1.1 beta.
 
 CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlarla bağlantılı değildir.
 
@@ -25,6 +25,7 @@ CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlar
 - İndirme yöneticisi sayfası, arasında geçiş yapabildiğin profiller, adım adım ilk açılış turu, geri ve ileri düğmeli ve eksik gereksinimleri sırayla gezdiren bir Nexus penceresi ve yeni bir açılış ekranı ekler.
 - Daha sağlam indirmeler, daha güvenli mod kaldırma, daha büyük kapaklar ve birkaç yeni yardımcı.
 - Modlarını özel bir linkle paylaş, oyun yükleme sırasını yönet ve her güncellemeden sonra yenilikleri gör.
+- Daha derli toplu bir mod araç çubuğu.
 
 ## Kurulum
 
