@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Un gestionnaire de mods non officiel, fait par la communauté, pour Cyberpunk 2077 sur Windows. Version 0.0.9 bêta.
+Un gestionnaire de mods non officiel, fait par la communauté, pour Cyberpunk 2077 sur Windows. Version 0.1.0 bêta.
 
 Il n'est pas créé par CD PROJEKT RED, Nexus Mods ou l'équipe NightCoop, ni affilié à eux.
 
@@ -24,6 +24,7 @@ Il n'est pas créé par CD PROJEKT RED, Nexus Mods ou l'équipe NightCoop, ni af
 - Ouvre les pages de téléchargement de Nexus dans l'application et installe le fichier avec une barre de progression, garde les couvertures des mods en petites vignettes pour que la liste s'ouvre vite et te laisse glisser les mods dans ton propre ordre.
 - Ajoute une page de gestion des téléchargements, des profils entre lesquels basculer, une visite guidée au premier lancement, une fenêtre Nexus avec boutons précédent et suivant qui te mène aux prérequis manquants et un nouvel écran de démarrage.
 - Téléchargements plus stables, suppression de mods plus sûre, couvertures plus grandes et quelques nouveaux outils.
+- Partage tes mods par un lien privé, gère l'ordre de chargement du jeu et vois les nouveautés après chaque mise à jour.
 
 ## Installation
 
