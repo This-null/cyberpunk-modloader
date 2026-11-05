@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.1.2 beta.
+An unofficial community mod manager for Cyberpunk 2077 on Windows. Version 0.1.3 beta.
 
 It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop team.
 
@@ -27,6 +27,7 @@ It is not made by or affiliated with CD PROJEKT RED, Nexus Mods or the NightCoop
 - Share your mods through a private link, control the game load order, and see what is new after each update.
 - A tidier mods toolbar.
 - Mod groups can be deleted, keep their mods when a version changes, and the buttons have icons.
+- Mods with an update now stay in their group.
 
 ## Install
 
