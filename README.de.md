@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Ein inoffizieller Mod-Manager aus der Community für Cyberpunk 2077 unter Windows. Version 0.1.3 Beta.
+Ein inoffizieller Mod-Manager aus der Community für Cyberpunk 2077 unter Windows. Version 0.1.4 Beta.
 
 Er stammt nicht von CD PROJEKT RED, Nexus Mods oder dem NightCoop-Team und ist nicht mit ihnen verbunden.
 
@@ -28,6 +28,7 @@ Er stammt nicht von CD PROJEKT RED, Nexus Mods oder dem NightCoop-Team und ist n
 - Eine aufgeräumtere Mod-Werkzeugleiste.
 - Modgruppen lassen sich löschen, behalten ihre Mods bei einem Versionswechsel, und die Buttons haben Icons.
 - Mods mit einem Update bleiben jetzt in ihrer Gruppe.
+- Getrennte Dateien einer Nexus-Seite bleiben getrennt, Mods lassen sich umbenennen, und es gibt einen Button Im Ordner anzeigen.
 
 ## Installation
 
