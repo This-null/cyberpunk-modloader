@@ -1,8 +1,8 @@
-# CP2077 Mod Launcher
+# Mod Loader
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Un gestionnaire de mods non officiel, fait par la communauté, pour Cyberpunk 2077 sur Windows. Version 0.1.4 bêta.
+Un gestionnaire de mods non officiel, fait par la communauté, pour Cyberpunk 2077 sur Windows. Version 0.1.5 bêta.
 
 Il n'est pas créé par CD PROJEKT RED, Nexus Mods ou l'équipe NightCoop, ni affilié à eux.
 
@@ -28,6 +28,7 @@ Il n'est pas créé par CD PROJEKT RED, Nexus Mods ou l'équipe NightCoop, ni af
 - Une barre d'outils des mods plus claire.
 - Les groupes de mods peuvent être supprimés, gardent leurs mods quand la version change, et les boutons ont des icônes.
 - Les mods avec une mise à jour restent maintenant dans leur groupe.
+- Le launcher s'appelle maintenant Mod Loader, et choisir un mod d'un autre groupe efface la sélection précédente.
 - Les fichiers distincts d'une page Nexus restent séparés, les mods peuvent être renommés et un bouton Afficher dans le dossier a été ajouté.
 
 ## Installation
