@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Nieoficjalny menedżer modów społeczności do Cyberpunk 2077 na Windows. Wersja 0.1.5 beta.
+Nieoficjalny menedżer modów społeczności do Cyberpunk 2077 na Windows. Wersja 0.1.6 beta.
 
 Nie jest tworzony przez CD PROJEKT RED, Nexus Mods ani zespół NightCoop i nie jest z nimi powiązany.
 
@@ -30,6 +30,7 @@ Nie jest tworzony przez CD PROJEKT RED, Nexus Mods ani zespół NightCoop i nie 
 - Mody z aktualizacją zostają teraz w swojej grupie.
 - Launcher nazywa się teraz Mod Loader, a wybranie moda z innej grupy czyści poprzedni wybór.
 - Osobne pliki z jednej strony Nexusa zostają osobno, mody można zmieniać nazwy, a do tego dodano przycisk Pokaż w folderze.
+- Mody z plikiem programu (.exe) instalują się po twojej zgodzie, strona Pobrane ma nowy wygląd, a powiadomienia o aktualizacjach są dokładniejsze.
 
 ## Instalacja
 

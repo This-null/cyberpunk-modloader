@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Windows için Cyberpunk 2077'ye yönelik resmi olmayan bir topluluk mod yöneticisi. Sürüm 0.1.5 beta.
+Windows için Cyberpunk 2077'ye yönelik resmi olmayan bir topluluk mod yöneticisi. Sürüm 0.1.6 beta.
 
 CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlarla bağlantılı değildir.
 
@@ -30,6 +30,7 @@ CD PROJEKT RED, Nexus Mods veya NightCoop ekibi tarafından yapılmadı ve onlar
 - Güncellemesi olan modlar artık kendi grubunda kalıyor.
 - Launcher'ın adı artık Mod Loader ve başka gruptaki bir modu seçince önceki seçim kalkıyor.
 - Aynı Nexus sayfasındaki ayrı dosyalar ayrı kalıyor, modlar yeniden adlandırılabiliyor ve Klasörde göster düğmesi eklendi.
+- Program dosyası (.exe) içeren modlar onayından sonra kurulabiliyor, İndirmeler sayfası yenilendi ve güncelleme uyarıları daha doğru.
 
 ## Kurulum
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Português (BR)](README.pt-BR.md) | [Français](README.fr.md) | [Polski](README.pl.md) | [Deutsch](README.de.md)
 
-Um gerenciador de mods não oficial, feito pela comunidade, para Cyberpunk 2077 no Windows. Versão 0.1.5 beta.
+Um gerenciador de mods não oficial, feito pela comunidade, para Cyberpunk 2077 no Windows. Versão 0.1.6 beta.
 
 Ele não é feito por nem tem ligação com a CD PROJEKT RED, a Nexus Mods ou a equipe do NightCoop.
 
@@ -30,6 +30,7 @@ Ele não é feito por nem tem ligação com a CD PROJEKT RED, a Nexus Mods ou a 
 - Mods com atualização agora ficam no seu grupo.
 - O launcher agora se chama Mod Loader, e escolher um mod de outro grupo limpa a seleção anterior.
 - Arquivos separados de uma página da Nexus ficam separados, mods podem ser renomeados e há um botão Mostrar na pasta.
+- Mods com um arquivo de programa (.exe) são instalados após sua aprovação, a página de Downloads está de cara nova e os avisos de atualização estão mais precisos.
 
 ## Instalação
 
